@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mind Maps</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      font-family: 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+    h1 {
+      color: rgba(255,255,255,0.85);
+      font-size: 1.4rem;
+      font-weight: 400;
+      letter-spacing: 0.1em;
+      margin-bottom: 2.5rem;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+      max-width: 800px;
+      width: 100%;
+    }
+    .card {
+      display: block;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      padding: 1.4rem 1.2rem;
+      text-decoration: none;
+      text-align: center;
+      transition: background 0.15s, border-color 0.15s, transform 0.1s;
+    }
+    .card:hover {
+      background: rgba(255,255,255,0.12);
+      border-color: rgba(255,255,255,0.25);
+      transform: translateY(-2px);
+    }
+    .card .icon { font-size: 2rem; margin-bottom: 0.6rem; }
+    .card .title {
+      color: #fff;
+      font-size: 0.95rem;
+      font-weight: 500;
+      line-height: 1.4;
+    }
+    .card .sub {
+      color: rgba(255,255,255,0.4);
+      font-size: 0.72rem;
+      margin-top: 0.3rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Mind Maps</h1>
+  <div class="grid">
+    <a class="card" href="mindmap.html?md=ZBRUSH.md">
+      <div class="icon">🗿</div>
+      <div class="title">ZBrush</div>
+      <div class="sub">flee style / animation</div>
+    </a>
+    <a class="card" href="mindmap.html?md=3dsmax.md">
+      <div class="icon">📦</div>
+      <div class="title">3ds Max</div>
+      <div class="sub">modeling / layout / rigging</div>
+    </a>
+    <a class="card" href="mindmap.html?md=music-video.md">
+      <div class="icon">🎬</div>
+      <div class="title">Music Video</div>
+      <div class="sub">AE / 3D / reference</div>
+    </a>
+    <a class="card" href="mindmap.html?md=hud.md">
+      <div class="icon">🖥️</div>
+      <div class="title">HUD</div>
+      <div class="sub">UI / Sci-Fi / specs</div>
+    </a>
+    <a class="card" href="mindmap.html?md=design.md">
+      <div class="icon">🎨</div>
+      <div class="title">Design</div>
+      <div class="sub">shape / color / motion</div>
+    </a>
+    <a class="card" href="mindmap.html?md=prepro.md">
+      <div class="icon">📋</div>
+      <div class="title">プリプロダクション</div>
+      <div class="sub">concept art / storyboard</div>
+    </a>
+  </div>
+</body>
+</html>

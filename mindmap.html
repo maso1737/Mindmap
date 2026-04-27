@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mind Map Viewer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #1a1a2e; font-family: sans-serif; }
+    .markmap { width: 100vw; height: 100vh; }
+    #error {
+      color: #eee;
+      padding: 2rem;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 1rem;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    #error h2 { color: #ff8c42; }
+    #error code {
+      background: #333;
+      padding: 0.8rem 1rem;
+      border-radius: 6px;
+      display: block;
+      font-size: 1rem;
+    }
+    #error a { color: #4fc3f7; }
+    #file-label {
+      position: fixed;
+      top: 10px;
+      left: 12px;
+      color: rgba(255,255,255,0.4);
+      font-size: 12px;
+      pointer-events: none;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <div id="file-label"></div>
+  <div class="markmap">
+    <script id="md-slot" type="text/template"></script>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const mdFile = params.get('md') || 'ZBRUSH.md';
+    document.getElementById('file-label').textContent = mdFile;
+    document.title = mdFile.replace('.md', '') + ' — Mind Map';
+
+    fetch(mdFile)
+      .then(r => {
+        if (!r.ok) throw new Error(r.status);
+        return r.text();
+      })
+      .then(content => {
+        document.getElementById('md-slot').textContent = content;
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/markmap-autoloader@0.16';
+        document.head.appendChild(s);
+      })
+      .catch(() => {
+        document.querySelector('.markmap').remove();
+        document.body.insertAdjacentHTML('beforeend', `
+          <div id="error">
+            <h2>⚠️ ${mdFile} を読み込めませんでした</h2>
+            <p>ローカルで見る場合は、このフォルダでコマンドを実行：</p>
+            <code>python -m http.server 8000</code>
+            <p>→ <a href="http://localhost:8000/mindmap.html?md=${mdFile}">http://localhost:8000/mindmap.html?md=${mdFile}</a> を開く</p>
+            <hr style="border-color:#444">
+            <p style="color:#aaa">GitHub Pages ではそのまま動作します。<br>
+            別のファイルを指定: <code>mindmap.html?md=ファイル名.md</code></p>
+          </div>`);
+      });
+  </script>
+</body>
+</html>

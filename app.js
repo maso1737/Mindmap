@@ -3,12 +3,12 @@
    ========================================================= */
 
 const CATEGORIES = [
-  { id: "ZBRUSH",       file: "ZBRUSH.md",       label: "ZBRUSH",        sub: "FLEE / ANIMATION",       jp: "" },
-  { id: "3dsmax",       file: "3dsmax.md",       label: "3DS · MAX",     sub: "MODEL / LAYOUT / RIG",   jp: "" },
-  { id: "design",       file: "design.md",       label: "DESIGN",        sub: "SHAPE / COLOR / MOTION", jp: "" },
-  { id: "hud",          file: "hud.md",          label: "HUD",           sub: "UI / SCI-FI / SPECS",    jp: "" },
-  { id: "music-video",  file: "music-video.md",  label: "MUSIC · VIDEO", sub: "AE / 3D / REFERENCE",    jp: "" },
-  { id: "prepro",       file: "prepro.md",       label: "PRE · PROD",    sub: "CONCEPT / STORYBOARD",   jp: "プリプロダクション" },
+  { id: "ZBRUSH",       file: "maps/ZBRUSH.md",       label: "ZBRUSH",        sub: "FLEE / ANIMATION",       jp: "" },
+  { id: "3dsmax",       file: "maps/3dsmax.md",       label: "3DS · MAX",     sub: "MODEL / LAYOUT / RIG",   jp: "" },
+  { id: "design",       file: "maps/design.md",       label: "DESIGN",        sub: "SHAPE / COLOR / MOTION", jp: "" },
+  { id: "hud",          file: "maps/hud.md",          label: "HUD",           sub: "UI / SCI-FI / SPECS",    jp: "" },
+  { id: "music-video",  file: "maps/music-video.md",  label: "MUSIC · VIDEO", sub: "AE / 3D / REFERENCE",    jp: "" },
+  { id: "prepro",       file: "maps/prepro.md",       label: "PRE · PROD",    sub: "CONCEPT / STORYBOARD",   jp: "プリプロダクション" },
 ];
 
 const STORE_KEY = "tdr-mindmap-v3";

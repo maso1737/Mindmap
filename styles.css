@@ -518,12 +518,13 @@ html, body {
   margin-top: 2px;
 }
 
-/* SVG edges layer */
+/* SVG edges layer — UNDER nodes */
 .edges {
   position: absolute;
   inset: 0;
   pointer-events: none;
   overflow: visible;
+  z-index: 0;
 }
 .edges path,
 .edges line {
@@ -531,10 +532,59 @@ html, body {
   stroke: var(--line);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
+  opacity: 0.85;
 }
 .edges .edge-acc {
   stroke: var(--acc);
   stroke-width: 3;
+  opacity: 1;
+}
+/* nodes above edges */
+.node { z-index: 2; }
+.node.is-root { z-index: 4; }
+.node.is-selected, .node.dragging { z-index: 10; }
+/* ensure node body has solid backdrop so text reads over edges */
+.node .node__body, .node .node__head {
+  position: relative;
+  background: var(--bg);
+}
+.node.is-root .node__body, .node.is-root .node__head { background: var(--ink); }
+.node.lvl-1 .node__body, .node.lvl-1 .node__head { background: var(--bg); }
+
+/* collapse toggle */
+.node__tog {
+  position: absolute;
+  top: -10px; right: -10px;
+  width: 20px; height: 20px;
+  border: 1px solid var(--ink);
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 5;
+  padding: 0;
+  color: var(--ink);
+}
+.node__tog:hover { background: var(--acc); }
+.node__tog--root { right: -10px; top: -10px; background: var(--acc); }
+.node.is-collapsed { opacity: 0.92; }
+.node.is-collapsed .node__title::after {
+  content: " ▸";
+  color: var(--acc);
+}
+
+/* minimal node mode */
+.node.is-minimal .node__notes,
+.node.is-minimal .node__url,
+.node.is-minimal .node__thumb { display: none; }
+.node.is-minimal { padding: 0 0 0 8px; }
+
+/* tweaks panel grip */
+.tw__grip {
+  letter-spacing: 0.16em;
+  color: var(--ink);
+  font-weight: 600;
 }
 
 /* ========== NODES ================================== */

@@ -1,11 +1,13 @@
 /* =========================================================
-   tDR-INSPIRED MINDMAP — APP  (build v8)
+   tDR-INSPIRED MINDMAP — APP  (build v8.1)
    - per-category view state
    - undo/redo
-   - collapse toggle
+   - collapse toggle + staggered reveal
+   - editable notes (contenteditable, + NOTE placeholder)
+   - node hover fade (related/unrelated edges+nodes)
+   - edge selection highlight
    - draggable tweaks panel
-   - layout-only reset
-   - high-DPI zoom (no pixelation)
+   - smooth zoom animation
    ========================================================= */
 
 const CATEGORIES = [
@@ -29,13 +31,17 @@ function parseMarkdown(md) {
   const mkId = () => `n_${counter++}`;
   const headRe = /^(#{1,6})\s+(.+)$/;
   const bullRe = /^(\s*)[-*]\s+(.+)$/;
+  const numRe = /^(\s*)\d+\.\s+(.+)$/;
+  const quoteRe = /^>\s*(.+)$/;
   for (let raw of lines) {
     const line = raw.replace(/\s+$/, "");
     if (!line.trim()) continue;
     const h = line.match(headRe);
     if (h) {
       const lvl = h[1].length;
-      const text = h[2].trim();
+      let text = h[2].trim();
+      // strip leading "1. " "■ " "1) " decorations from heading text
+      text = text.replace(/^[■●◆▪︎▸►]\s*/, "").replace(/^\d+[\.\)]\s*/, "").trim();
       if (!root && lvl === 1) {
         const r = makeNode(text, 0, "n_root");
         r.id = "n_root";
@@ -54,9 +60,9 @@ function parseMarkdown(md) {
       stack.push(node);
       continue;
     }
-    const b = line.match(bullRe);
+    const b = line.match(bullRe) || line.match(numRe) || line.match(quoteRe);
     if (b) {
-      const text = b[2].trim();
+      const text = (b[2] || b[1]).trim();
       const cur = stack[stack.length - 1];
       if (cur && cur.notes.length < 3) cur.notes.push(stripLinks(text));
     }
@@ -138,7 +144,7 @@ function maxDepth(root) { let d=0; (function w(x,l){ d=Math.max(d,l); (x.childre
 const state = {
   trees: {},
   meta: {},
-  views: {},          // { catId: {x,y,k} }
+  views: {},
   active: "ZBRUSH",
   selected: null,
   theme: "light",
@@ -166,18 +172,12 @@ function saveState() {
 function loadStateRaw() { try { const r = localStorage.getItem(STORE_KEY); return r ? JSON.parse(r) : null; } catch { return null; } }
 
 /* =========================================================
-   UNDO / REDO  (snapshots of trees+views)
+   UNDO / REDO
    ========================================================= */
 const history = { past: [], future: [] };
 const HIST_MAX = 60;
-function snapshot() {
-  return JSON.stringify({ trees: state.trees, views: state.views });
-}
-function restoreSnap(s) {
-  const o = JSON.parse(s);
-  state.trees = o.trees;
-  state.views = o.views;
-}
+function snapshot() { return JSON.stringify({ trees: state.trees, views: state.views }); }
+function restoreSnap(s) { const o = JSON.parse(s); state.trees = o.trees; state.views = o.views; }
 function pushHistory() {
   history.past.push(snapshot());
   if (history.past.length > HIST_MAX) history.past.shift();
@@ -185,21 +185,15 @@ function pushHistory() {
 }
 function undo() {
   if (!history.past.length) return;
-  const cur = snapshot();
-  const prev = history.past.pop();
-  history.future.push(cur);
-  restoreSnap(prev);
-  renderStage(); updateCrumbs(); saveState();
-  toast("UNDO");
+  const cur = snapshot(); const prev = history.past.pop();
+  history.future.push(cur); restoreSnap(prev);
+  renderStage(); updateCrumbs(); saveState(); toast("UNDO");
 }
 function redo() {
   if (!history.future.length) return;
-  const cur = snapshot();
-  const nxt = history.future.pop();
-  history.past.push(cur);
-  restoreSnap(nxt);
-  renderStage(); updateCrumbs(); saveState();
-  toast("REDO");
+  const cur = snapshot(); const nxt = history.future.pop();
+  history.past.push(cur); restoreSnap(nxt);
+  renderStage(); updateCrumbs(); saveState(); toast("REDO");
 }
 
 /* =========================================================
@@ -207,6 +201,10 @@ function redo() {
    ========================================================= */
 async function loadAllMaps() {
   const stored = loadStateRaw();
+  if (stored && stored.trees) {
+    const ids = new Set(CATEGORIES.map(c => c.id));
+    Object.keys(stored.trees).forEach(k => { if (!ids.has(k)) delete stored.trees[k]; });
+  }
   for (const cat of CATEGORIES) {
     if (stored && stored.trees && stored.trees[cat.id]) {
       state.trees[cat.id] = stored.trees[cat.id];
@@ -225,6 +223,7 @@ async function loadAllMaps() {
   }
   if (stored) {
     state.active = stored.active || "ZBRUSH";
+    if (!CATEGORIES.find(c => c.id === state.active)) state.active = "ZBRUSH";
     state.views = stored.views || {};
     state.theme = stored.theme || "light";
     state.showCoords = !!stored.showCoords;
@@ -278,14 +277,15 @@ function makeFootRow(k, v) {
 function renderStage() {
   const root = state.trees[state.active];
   const vp = $(".stg__viewport");
+  if (!vp) return;
   vp.innerHTML = "";
+  if (!root) return;
 
   const idx = CATEGORIES.findIndex(c => c.id === state.active);
   const num1 = $(".gh-num1"), num2 = $(".gh-num2");
   if (num1) num1.textContent = String(idx).padStart(2, "0");
   if (num2) num2.textContent = (idx + 1) + "A";
 
-  // SVG edges (rendered FIRST so nodes layer above)
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("class", "edges");
   svg.style.position = "absolute";
@@ -294,29 +294,24 @@ function renderStage() {
   svg.setAttribute("viewBox", "-3000 -3000 9000 9000");
   vp.appendChild(svg);
 
-  // visible flat (skip children of collapsed nodes)
   const flat = [];
   (function walk(n, parent) {
     flat.push({ n, parent });
     if (n._open !== false) (n.children || []).forEach(c => walk(c, n));
   })(root, null);
 
-  // edges
   flat.forEach(({ n, parent }) => {
     if (!parent) return;
-    const x1 = parent.x, y1 = parent.y;
-    const x2 = n.x, y2 = n.y;
     const isAccent = (parent === root);
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    const midX = (x1 + x2) / 2;
-    path.setAttribute("d", `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`);
+    const midX = (parent.x + n.x) / 2;
+    path.setAttribute("d", `M ${parent.x} ${parent.y} L ${midX} ${parent.y} L ${midX} ${n.y} L ${n.x} ${n.y}`);
     if (isAccent) path.setAttribute("class", "edge-acc");
     path.setAttribute("data-edge-from", parent.id);
     path.setAttribute("data-edge-to", n.id);
     svg.appendChild(path);
   });
 
-  // nodes
   flat.forEach(({ n, parent }, i) => {
     const isRoot = !parent;
     const lvl = computeLevel(n, root);
@@ -326,29 +321,24 @@ function renderStage() {
       "data-id": n.id,
       style: `left:${n.x}px; top:${n.y}px; transform: translate(-50%, -50%);`,
     });
-    const idxStr = isRoot ? "ROOT" : padIdx(i, lvl);
-    const head = el("div", { class: "node__head" },
-      el("span", { class: "node__idx" }, idxStr),
+    node.appendChild(el("div", { class: "node__head" },
+      el("span", { class: "node__idx" }, isRoot ? "ROOT" : padIdx(i, lvl)),
       el("span", { class: "node__lvl" }, "L" + lvl),
-    );
-    node.appendChild(head);
+    ));
 
-    // collapse toggle: if node has children
     if ((n.children || []).length > 0 && !isRoot) {
-      const tog = el("button", {
+      node.appendChild(el("button", {
         class: "node__tog",
         title: n._open === false ? "Expand" : "Collapse",
         onclick: (e) => { e.stopPropagation(); toggleCollapse(n); },
-      }, n._open === false ? "+" : "−");
-      node.appendChild(tog);
+      }, n._open === false ? "+" : "−"));
     }
     if (isRoot && (n.children || []).length > 0) {
-      const tog = el("button", {
+      node.appendChild(el("button", {
         class: "node__tog node__tog--root",
         title: n._open === false ? "Expand" : "Collapse",
         onclick: (e) => { e.stopPropagation(); toggleCollapse(n); },
-      }, n._open === false ? "+" : "−");
-      node.appendChild(tog);
+      }, n._open === false ? "+" : "−"));
     }
 
     if (lvl === 1 && state.nodeStyle === "block" && n.thumb) {
@@ -359,63 +349,105 @@ function renderStage() {
     const body = el("div", { class: "node__body" });
     const title = el("div", {
       class: "node__title" + (hasJP(n.title) ? " has-jp" : ""),
-      contenteditable: "true",
-      spellcheck: "false",
+      contenteditable: "true", spellcheck: "false",
     }, n.title || "Untitled");
     title.addEventListener("focus", () => pushHistory());
     title.addEventListener("blur", () => { n.title = title.textContent.trim(); saveState(); });
     title.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); title.blur(); } });
     body.appendChild(title);
 
-    if (!isMin && n.notes && n.notes.length) {
+    if (!isMin) {
       const notes = el("div", { class: "node__notes" });
-      n.notes.slice(0, 2).forEach(t => notes.appendChild(el("div", { class: "n" }, t)));
+      const noteCount = Math.max(1, Math.min(3, (n.notes || []).length || 1));
+      for (let ni = 0; ni < noteCount; ni++) {
+        const noteText = (n.notes && n.notes[ni]) || "";
+        const noteEl = el("div", {
+          class: "n" + (noteText ? "" : " is-empty"),
+          contenteditable: "true", spellcheck: "false",
+          "data-placeholder": "+ NOTE",
+          "data-note-idx": String(ni),
+        }, noteText);
+        noteEl.addEventListener("focus", () => { pushHistory(); noteEl.classList.remove("is-empty"); });
+        noteEl.addEventListener("input", () => { if (!n.notes) n.notes = []; n.notes[ni] = noteEl.textContent; });
+        noteEl.addEventListener("blur", () => {
+          const v = noteEl.textContent.trim();
+          if (!n.notes) n.notes = [];
+          n.notes[ni] = v;
+          while (n.notes.length && !n.notes[n.notes.length - 1]) n.notes.pop();
+          if (!v) noteEl.classList.add("is-empty");
+          saveState();
+        });
+        noteEl.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter") {
+            ev.preventDefault();
+            const next = noteEl.parentElement.querySelector(`[data-note-idx="${ni + 1}"]`);
+            if (next) next.focus();
+            else if (ni < 2) {
+              noteEl.blur(); renderStage();
+              setTimeout(() => { const dom = $(`.node[data-id="${n.id}"] [data-note-idx="${ni + 1}"]`); if (dom) dom.focus(); }, 0);
+            } else noteEl.blur();
+          }
+        });
+        notes.appendChild(noteEl);
+      }
       body.appendChild(notes);
     }
     if (!isMin && (n.url || !isRoot)) {
-      const urlRow = el("div", { class: "node__url" });
-      urlRow.appendChild(el("span", { class: "lbl" }, "URL"));
-      const a = n.url ? el("a", { href: n.url, target: "_blank", rel: "noreferrer noopener" }, shortUrl(n.url))
-                       : el("span", { style: "color:var(--mute);font-style:italic;" }, "—");
-      urlRow.appendChild(a);
+      const urlRow = el("div", { class: "node__url" },
+        el("span", { class: "lbl" }, "URL"),
+        n.url ? el("a", { href: n.url, target: "_blank", rel: "noreferrer noopener" }, shortUrl(n.url))
+               : el("span", { style: "color:var(--mute);font-style:italic;" }, "—"),
+      );
       body.appendChild(urlRow);
     }
     node.appendChild(body);
     node.appendChild(el("div", { class: "node__coord" }, fmtCoord(n.x, n.y)));
-
-    const actions = el("div", { class: "node__actions" },
+    node.appendChild(el("div", { class: "node__actions" },
       el("button", { onclick: (e) => { e.stopPropagation(); editURL(n); } }, "URL"),
       el("button", { onclick: (e) => { e.stopPropagation(); pickThumb(n); } }, "IMG"),
       el("button", { onclick: (e) => { e.stopPropagation(); addChild(n); } }, "+ CHILD"),
       el("button", { class: "del", onclick: (e) => { e.stopPropagation(); delNode(n); } }, "DEL"),
-    );
-    node.appendChild(actions);
+    ));
 
     attachNodeDrag(node, n);
     node.addEventListener("click", (ev) => {
-      if (ev.target.closest(".node__title")) return;
-      if (ev.target.closest(".node__url a")) return;
-      if (ev.target.closest(".node__tog")) return;
+      if (ev.target.closest(".node__title") || ev.target.closest(".node__notes") || ev.target.closest(".node__url a") || ev.target.closest(".node__tog")) return;
       ev.stopPropagation();
       state.selected = n.id;
       $$(".node.is-selected").forEach(el => el.classList.remove("is-selected"));
       node.classList.add("is-selected");
+      markSelectedEdges(n);
       updateCrumbs();
     });
 
+    node.addEventListener("mouseenter", () => {
+      if (node.classList.contains("dragging")) return;
+      $(".stg").classList.add("is-hovering");
+      const related = collectRelatedIds(state.trees[state.active], n);
+      $$(".node").forEach(el => {
+        const id = el.getAttribute("data-id");
+        el.classList.toggle("is-related", related.has(id));
+        el.classList.toggle("is-hovered", id === n.id);
+      });
+      $$(".edges path").forEach(p => {
+        p.classList.toggle("edge-related", related.has(p.getAttribute("data-edge-from")) && related.has(p.getAttribute("data-edge-to")));
+      });
+    });
+    node.addEventListener("mouseleave", () => {
+      $(".stg").classList.remove("is-hovering");
+      $$(".node").forEach(el => el.classList.remove("is-related", "is-hovered"));
+      $$(".edges path").forEach(p => p.classList.remove("edge-related"));
+    });
+
     node.addEventListener("dragover", (ev) => {
-      if (ev.dataTransfer && ev.dataTransfer.types && ev.dataTransfer.types.includes("Files")) {
-        ev.preventDefault(); node.classList.add("drop-target");
-      }
+      if (ev.dataTransfer?.types?.includes("Files")) { ev.preventDefault(); node.classList.add("drop-target"); }
     });
     node.addEventListener("dragleave", () => node.classList.remove("drop-target"));
     node.addEventListener("drop", async (ev) => {
       ev.preventDefault(); node.classList.remove("drop-target");
-      const f = ev.dataTransfer.files && ev.dataTransfer.files[0];
-      if (f && f.type.startsWith("image/")) {
-        pushHistory();
-        const url = await fileToDataURL(f);
-        n.thumb = url; renderStage(); saveState(); toast("IMAGE ATTACHED");
+      const f = ev.dataTransfer.files?.[0];
+      if (f?.type.startsWith("image/")) {
+        pushHistory(); n.thumb = await fileToDataURL(f); renderStage(); saveState(); toast("IMAGE ATTACHED");
       }
     });
 
@@ -435,64 +467,71 @@ function padIdx(i, lvl) { const a = "0123456789ABCDEF"; return String(lvl) + a[i
 
 function toggleCollapse(n) {
   pushHistory();
-  n._open = (n._open === false) ? true : false;
+  const wasOpen = (n._open !== false);
+  n._open = wasOpen ? false : true;
   renderStage(); saveState();
-  toast(n._open === false ? "COLLAPSED" : "EXPANDED");
+  if (!wasOpen) {
+    const order = [];
+    (function w(node) { (node.children || []).forEach((c, i) => { order.push(c.id); w(c); }); })(n);
+    order.forEach((id, i) => {
+      const dom = $(`.node[data-id="${id}"]`);
+      if (!dom) return;
+      const base = "translate(-50%, -50%)";
+      dom.style.transform = base + " translateY(-4px)"; dom.style.opacity = "0";
+      setTimeout(() => {
+        dom.style.transition = "opacity 220ms var(--ez), transform 260ms var(--ez)";
+        dom.style.opacity = "1"; dom.style.transform = base;
+      }, 30 + i * 24);
+    });
+  }
+  toast(wasOpen ? "COLLAPSED" : "EXPANDED");
 }
 
 /* =========================================================
    TRANSFORM
    ========================================================= */
-function applyTransform() {
+function applyTransform(smooth) {
   const v = getView();
   const vp = $(".stg__viewport");
-  if (vp) vp.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.k})`;
+  if (vp) {
+    if (smooth) {
+      vp.classList.add("is-smooth");
+      clearTimeout(applyTransform._t);
+      applyTransform._t = setTimeout(() => vp.classList.remove("is-smooth"), 400);
+    } else {
+      vp.classList.remove("is-smooth");
+    }
+    vp.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.k})`;
+  }
   const lvl = $(".zoom .lvl");
   if (lvl) lvl.textContent = Math.round(v.k * 100) + "%";
 }
 function attachStagePanZoom() {
   const stg = $(".stg");
   let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
-
-  function startPan(e) {
-    if (e.target.closest(".node")) return;
-    if (e.target.closest(".tw")) return;
-    if (e.target.closest(".zoom")) return;
-    if (e.target.closest(".hint")) return;
-    if (e.target.closest(".stg__axis")) return;
-    if (e.button !== 0) return;
+  stg.addEventListener("mousedown", (e) => {
+    if (e.target.closest(".node") || e.target.closest(".tw") || e.target.closest(".zoom") || e.target.closest(".hint") || e.target.closest(".stg__axis") || e.button !== 0) return;
     dragging = true; sx = e.clientX; sy = e.clientY;
     const v = getView(); ox = v.x; oy = v.y;
-    stg.classList.add("is-panning");
-    state.selected = null;
+    stg.classList.add("is-panning"); state.selected = null;
     $$(".node.is-selected").forEach(el => el.classList.remove("is-selected"));
-  }
-  stg.addEventListener("mousedown", startPan);
+  });
   window.addEventListener("mousemove", (e) => {
     if (!dragging) return;
-    const v = getView();
-    v.x = ox + (e.clientX - sx);
-    v.y = oy + (e.clientY - sy);
-    applyTransform();
+    const v = getView(); v.x = ox + (e.clientX - sx); v.y = oy + (e.clientY - sy); applyTransform();
   });
   window.addEventListener("mouseup", () => {
     if (dragging) { dragging = false; stg.classList.remove("is-panning"); saveState(); }
   });
-
   stg.addEventListener("wheel", (e) => {
     e.preventDefault();
     const v = getView();
-    const delta = -e.deltaY * 0.0015;
-    const newK = Math.min(2.5, Math.max(0.25, v.k * (1 + delta)));
+    const newK = Math.min(2.5, Math.max(0.25, v.k * (1 + -e.deltaY * 0.0015)));
     const rect = stg.getBoundingClientRect();
     const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
-    const dx = (cx - v.x) / v.k;
-    const dy = (cy - v.y) / v.k;
-    v.k = newK;
-    v.x = cx - dx * newK;
-    v.y = cy - dy * newK;
-    applyTransform();
-    saveState();
+    const dx = (cx - v.x) / v.k, dy = (cy - v.y) / v.k;
+    v.k = newK; v.x = cx - dx * newK; v.y = cy - dy * newK;
+    applyTransform(); saveState();
   }, { passive: false });
 }
 
@@ -502,27 +541,17 @@ function attachStagePanZoom() {
 function attachNodeDrag(elNode, n) {
   let dragging = false, started = false, sx = 0, sy = 0, ox = 0, oy = 0;
   elNode.addEventListener("mousedown", (e) => {
-    if (e.target.closest(".node__title")) return;
-    if (e.target.closest(".node__url a")) return;
-    if (e.target.closest(".node__actions")) return;
-    if (e.target.closest(".node__tog")) return;
-    if (e.button !== 0) return;
-    dragging = true; started = false;
-    sx = e.clientX; sy = e.clientY;
-    ox = n.x; oy = n.y;
-    e.stopPropagation();
+    if (e.target.closest(".node__title") || e.target.closest(".node__notes") || e.target.closest(".node__url a") || e.target.closest(".node__actions") || e.target.closest(".node__tog") || e.button !== 0) return;
+    dragging = true; started = false; sx = e.clientX; sy = e.clientY; ox = n.x; oy = n.y; e.stopPropagation();
   });
   window.addEventListener("mousemove", (e) => {
     if (!dragging) return;
     const k = getView().k;
-    const dx = (e.clientX - sx) / k;
-    const dy = (e.clientY - sy) / k;
+    const dx = (e.clientX - sx) / k, dy = (e.clientY - sy) / k;
     if (!started && Math.hypot(dx, dy) < 3) return;
     if (!started) { started = true; pushHistory(); elNode.classList.add("dragging"); }
-    n.x = Math.round((ox + dx) / 10) * 10;
-    n.y = Math.round((oy + dy) / 10) * 10;
-    elNode.style.left = n.x + "px";
-    elNode.style.top = n.y + "px";
+    n.x = Math.round((ox + dx) / 10) * 10; n.y = Math.round((oy + dy) / 10) * 10;
+    elNode.style.left = n.x + "px"; elNode.style.top = n.y + "px";
     const cd = elNode.querySelector(".node__coord"); if (cd) cd.textContent = fmtCoord(n.x, n.y);
     updateEdgesForNode(n);
     if (e.shiftKey) {
@@ -533,24 +562,15 @@ function attachNodeDrag(elNode, n) {
   });
   window.addEventListener("mouseup", (e) => {
     if (!dragging) return;
-    if (started && e.shiftKey) {
-      const target = pickNodeAt(e.clientX, e.clientY, n);
-      if (target && target.node !== n) reparent(n, target.node);
-    }
+    if (started && e.shiftKey) { const target = pickNodeAt(e.clientX, e.clientY, n); if (target && target.node !== n) reparent(n, target.node); }
     dragging = false;
-    if (started) {
-      elNode.classList.remove("dragging");
-      $$(".node.drop-target").forEach(x => x.classList.remove("drop-target"));
-      saveState();
-    }
+    if (started) { elNode.classList.remove("dragging"); $$(".node.drop-target").forEach(x => x.classList.remove("drop-target")); saveState(); }
   });
 }
 function pickNodeAt(cx, cy, exclude) {
-  const els = document.elementsFromPoint(cx, cy);
-  for (const e of els) {
-    if (!e.classList || !e.classList.contains("node")) continue;
-    const id = e.getAttribute("data-id");
-    if (!id) continue;
+  for (const e of document.elementsFromPoint(cx, cy)) {
+    if (!e.classList?.contains("node")) continue;
+    const id = e.getAttribute("data-id"); if (!id) continue;
     const node = findNodeById(state.trees[state.active], id);
     if (node && node !== exclude) return { dom: e, node };
   }
@@ -562,6 +582,29 @@ function findNodeById(root, id) {
   for (const c of root.children || []) { const f = findNodeById(c, id); if (f) return f; }
   return null;
 }
+function collectRelatedIds(root, target) {
+  const set = new Set();
+  (function w(n) { set.add(n.id); (n.children || []).forEach(w); })(target);
+  (function w(n, path) {
+    if (n === target) { path.forEach(p => set.add(p.id)); return true; }
+    for (const c of n.children || []) { if (w(c, [...path, n])) return true; }
+    return false;
+  })(root, []);
+  return set;
+}
+function markSelectedEdges(target) {
+  const root = state.trees[state.active];
+  $$(".edges path").forEach(p => p.classList.remove("edge-selected"));
+  const chain = [];
+  (function w(n, path) {
+    if (n === target) { chain.push(...path, n); return true; }
+    for (const c of n.children || []) { if (w(c, [...path, n])) return true; }
+    return false;
+  })(root, []);
+  for (let i = 0; i < chain.length - 1; i++) {
+    $$(`.edges path[data-edge-from="${chain[i].id}"][data-edge-to="${chain[i+1].id}"]`).forEach(p => p.classList.add("edge-selected"));
+  }
+}
 function findParent(root, id) {
   for (const c of root.children || []) {
     if (c.id === id) return root;
@@ -570,32 +613,24 @@ function findParent(root, id) {
   return null;
 }
 function isDescendant(a, b) {
-  for (const c of a.children || []) {
-    if (c === b) return true;
-    if (isDescendant(c, b)) return true;
-  }
+  for (const c of a.children || []) { if (c === b || isDescendant(c, b)) return true; }
   return false;
 }
 function reparent(node, newParent) {
   const root = state.trees[state.active];
   if (node === root || newParent === node) return;
   if (isDescendant(node, newParent)) { toast("CIRCULAR · BLOCKED"); return; }
-  const oldParent = findParent(root, node.id);
-  if (!oldParent) return;
+  const oldParent = findParent(root, node.id); if (!oldParent) return;
   oldParent.children = oldParent.children.filter(c => c !== node);
   newParent.children.push(node);
-  toast("RE · PARENTED");
-  renderStage(); saveState();
+  toast("RE · PARENTED"); renderStage(); saveState();
 }
 function updateEdgesForNode(n) {
   const root = state.trees[state.active];
-  const svg = $(".stg__viewport .edges");
-  if (!svg) return;
+  const svg = $(".stg__viewport .edges"); if (!svg) return;
   $$(`path[data-edge-to="${n.id}"], path[data-edge-from="${n.id}"]`, svg).forEach(p => {
-    const fromId = p.getAttribute("data-edge-from");
-    const toId = p.getAttribute("data-edge-to");
-    const a = findNodeById(root, fromId);
-    const b = findNodeById(root, toId);
+    const a = findNodeById(root, p.getAttribute("data-edge-from"));
+    const b = findNodeById(root, p.getAttribute("data-edge-to"));
     if (!a || !b) return;
     const midX = (a.x + b.x) / 2;
     p.setAttribute("d", `M ${a.x} ${a.y} L ${midX} ${a.y} L ${midX} ${b.y} L ${b.x} ${b.y}`);
@@ -610,43 +645,33 @@ function addChild(parent) {
   const id = "n_" + Math.random().toString(36).slice(2, 8);
   const newNode = { id, title: "NEW NODE", url: null, notes: [], children: [], _open: true,
     x: (parent.x || 0) + 240, y: (parent.y || 0) + 60 };
-  parent.children.push(newNode);
-  parent._open = true;
+  parent.children.push(newNode); parent._open = true;
   state.selected = id;
   state.meta[state.active].count = countNodes(state.trees[state.active]);
   state.meta[state.active].depth = maxDepth(state.trees[state.active]);
-  renderStage(); renderSidebar(); saveState();
-  toast("NODE ADDED");
+  renderStage(); renderSidebar(); saveState(); toast("NODE ADDED");
 }
 function delNode(n) {
   const root = state.trees[state.active];
   if (n === root) { toast("CANNOT DELETE ROOT"); return; }
   if (!confirm("Delete this node and all children?")) return;
   pushHistory();
-  const p = findParent(root, n.id);
-  if (!p) return;
+  const p = findParent(root, n.id); if (!p) return;
   p.children = p.children.filter(c => c !== n);
   state.selected = null;
   state.meta[state.active].count = countNodes(root);
   state.meta[state.active].depth = maxDepth(root);
-  renderStage(); renderSidebar(); saveState();
-  toast("DELETED");
+  renderStage(); renderSidebar(); saveState(); toast("DELETED");
 }
 function editURL(n) {
-  const u = prompt("URL:", n.url || "https://");
-  if (u === null) return;
-  pushHistory();
-  n.url = u.trim() || null;
-  renderStage(); saveState();
+  const u = prompt("URL:", n.url || "https://"); if (u === null) return;
+  pushHistory(); n.url = u.trim() || null; renderStage(); saveState();
 }
 function pickThumb(n) {
-  const inp = document.createElement("input");
-  inp.type = "file"; inp.accept = "image/*";
+  const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
   inp.onchange = async () => {
     const f = inp.files[0]; if (!f) return;
-    pushHistory();
-    n.thumb = await fileToDataURL(f);
-    renderStage(); saveState(); toast("IMAGE ATTACHED");
+    pushHistory(); n.thumb = await fileToDataURL(f); renderStage(); saveState(); toast("IMAGE ATTACHED");
   };
   inp.click();
 }
@@ -659,9 +684,8 @@ function fileToDataURL(f) {
    ========================================================= */
 function updateCrumbs() {
   const cat = CATEGORIES.find(c => c.id === state.active);
-  const root = state.trees[state.active];
   const meta = state.meta[state.active];
-  const sel = state.selected ? findNodeById(root, state.selected) : null;
+  const sel = state.selected ? findNodeById(state.trees[state.active], state.selected) : null;
   const c = $(".hd__crumbs"); c.innerHTML = "";
   c.appendChild(el("span", { class: "coord" }, "M/" + String(CATEGORIES.indexOf(cat)).padStart(2, "0")));
   c.appendChild(el("span", { class: "sep" }, "/"));
@@ -678,7 +702,7 @@ function updateCrumbs() {
 }
 
 /* =========================================================
-   TWEAKS  (draggable panel)
+   TWEAKS
    ========================================================= */
 function applyTheme() {
   document.documentElement.setAttribute("data-theme", state.theme);
@@ -686,9 +710,7 @@ function applyTheme() {
   document.documentElement.style.setProperty("--acc-ink", state.accent === "ink" ? "#ffffff" : "#0a0a0a");
 }
 function renderTweaks() {
-  const tw = $(".tw");
-  tw.innerHTML = "";
-  // position from state
+  const tw = $(".tw"); tw.innerHTML = "";
   if (state.twPos.left != null) { tw.style.left = state.twPos.left + "px"; tw.style.right = "auto"; }
   else { tw.style.right = (state.twPos.right ?? 16) + "px"; tw.style.left = "auto"; }
   if (state.twPos.top != null) { tw.style.top = state.twPos.top + "px"; tw.style.bottom = "auto"; }
@@ -698,36 +720,17 @@ function renderTweaks() {
     el("span", { class: "tw__grip" }, "··· TWEAKS"),
     el("button", { class: "x", onclick: () => closeTweaks() }, "×"),
   );
-  tw.appendChild(hd);
-  attachTwDrag(hd);
+  tw.appendChild(hd); attachTwDrag(hd);
 
   const body = el("div", { class: "tw__body" });
   body.appendChild(makeSeg("THEME", ["light", "dark"], state.theme, v => { state.theme = v; applyTheme(); saveState(); renderTweaks(); }));
   body.appendChild(makeSwatch("ACCENT", state.accent, v => { state.accent = v; applyTheme(); saveState(); renderTweaks(); }));
   body.appendChild(makeSeg("COORDS", ["off", "on"], state.showCoords ? "on" : "off", v => { state.showCoords = (v === "on"); saveState(); $(".stg")?.classList.toggle("show-coords", state.showCoords); renderTweaks(); }));
   body.appendChild(makeSeg("NODE", ["block", "minimal"], state.nodeStyle, v => { state.nodeStyle = v; saveState(); renderStage(); renderTweaks(); }));
-
-  // Reset LAYOUT only — re-layout current map without losing edits
-  const resetLayoutBtn = el("button", {
-    style: "appearance:none;background:var(--bg);border:1px solid var(--line);padding:8px;font-family:inherit;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink);cursor:pointer;",
-    onclick: () => {
-      pushHistory();
-      const root = state.trees[state.active];
-      layoutTree(root);
-      state.views[state.active] = { x: 600, y: 400, k: 0.85 };
-      renderStage(); saveState();
-      toast("LAYOUT RESET · " + state.active);
-    },
-  }, "RESET LAYOUT (CURRENT)");
-  body.appendChild(resetLayoutBtn);
-
-  // full reset (with confirm)
-  const resetAllBtn = el("button", {
+  body.appendChild(el("button", {
     style: "appearance:none;background:transparent;border:1px dashed var(--mute);padding:8px;font-family:inherit;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--mute);cursor:pointer;",
     onclick: () => { if (confirm("Reset all maps and lose all edits?")) { localStorage.removeItem(STORE_KEY); location.reload(); } },
-  }, "RESET ALL DATA");
-  body.appendChild(resetAllBtn);
-
+  }, "RESET ALL DATA"));
   tw.appendChild(body);
 }
 function attachTwDrag(handle) {
@@ -735,92 +738,53 @@ function attachTwDrag(handle) {
   handle.style.cursor = "move";
   handle.addEventListener("mousedown", (e) => {
     if (e.target.closest(".x")) return;
-    const tw = $(".tw");
-    const r = tw.getBoundingClientRect();
-    dragging = true; sx = e.clientX; sy = e.clientY;
-    ol = r.left; ot = r.top;
-    e.preventDefault();
+    const r = $(".tw").getBoundingClientRect();
+    dragging = true; sx = e.clientX; sy = e.clientY; ol = r.left; ot = r.top; e.preventDefault();
   });
   window.addEventListener("mousemove", (e) => {
     if (!dragging) return;
     const tw = $(".tw");
-    const nx = ol + (e.clientX - sx);
-    const ny = ot + (e.clientY - sy);
-    tw.style.left = Math.max(8, Math.min(window.innerWidth - 100, nx)) + "px";
-    tw.style.right = "auto";
-    tw.style.top = Math.max(8, Math.min(window.innerHeight - 60, ny)) + "px";
-    tw.style.bottom = "auto";
+    tw.style.left = Math.max(8, Math.min(window.innerWidth - 100, ol + (e.clientX - sx))) + "px"; tw.style.right = "auto";
+    tw.style.top = Math.max(8, Math.min(window.innerHeight - 60, ot + (e.clientY - sy))) + "px"; tw.style.bottom = "auto";
   });
   window.addEventListener("mouseup", () => {
-    if (!dragging) return;
-    dragging = false;
-    const tw = $(".tw");
-    const r = tw.getBoundingClientRect();
-    state.twPos = { left: r.left, top: r.top };
-    saveState();
+    if (!dragging) return; dragging = false;
+    const r = $(".tw").getBoundingClientRect(); state.twPos = { left: r.left, top: r.top }; saveState();
   });
 }
 function makeSeg(label, opts, current, onPick) {
   const row = el("div", { class: "tw__row" });
   row.appendChild(el("div", { class: "lbl" }, el("span", {}, label), el("span", { style: "color:var(--ink);" }, current.toUpperCase())));
   const seg = el("div", { class: "tw__seg" });
-  opts.forEach(o => {
-    const b = el("button", { class: o === current ? "on" : "", onclick: () => onPick(o) }, o.toUpperCase());
-    seg.appendChild(b);
-  });
-  row.appendChild(seg);
-  return row;
+  opts.forEach(o => seg.appendChild(el("button", { class: o === current ? "on" : "", onclick: () => onPick(o) }, o.toUpperCase())));
+  row.appendChild(seg); return row;
 }
 function makeSwatch(label, current, onPick) {
   const row = el("div", { class: "tw__row" });
   row.appendChild(el("div", { class: "lbl" }, el("span", {}, label), el("span", { style: "color:var(--ink);" }, current.toUpperCase())));
   const sw = el("div", { class: "tw__sw" });
-  Object.keys(ACCENTS).forEach(k => {
-    const b = el("button", { class: k === current ? "on" : "", style: `--c:${ACCENTS[k]}`, onclick: () => onPick(k), title: k });
-    sw.appendChild(b);
-  });
-  row.appendChild(sw);
-  return row;
+  Object.keys(ACCENTS).forEach(k => sw.appendChild(el("button", { class: k === current ? "on" : "", style: `--c:${ACCENTS[k]}`, onclick: () => onPick(k), title: k })));
+  row.appendChild(sw); return row;
 }
 function openTweaks() { $(".tw").classList.add("is-open"); renderTweaks(); }
-function closeTweaks() {
-  $(".tw").classList.remove("is-open");
-  window.parent.postMessage({ type: "__edit_mode_dismissed" }, "*");
-}
+function closeTweaks() { $(".tw").classList.remove("is-open"); window.parent.postMessage({ type: "__edit_mode_dismissed" }, "*"); }
 
 /* =========================================================
-   IMPORT / EXPORT
+   EXPORT
    ========================================================= */
-function exportJSON() {
-  const out = JSON.stringify({ version: 1, trees: state.trees }, null, 2);
-  download(out, "mindmap-" + Date.now() + ".json", "application/json");
-  toast("EXPORTED · JSON");
-}
+function exportJSON() { download(JSON.stringify({ version: 1, trees: state.trees }, null, 2), "mindmap-" + Date.now() + ".json", "application/json"); toast("EXPORTED · JSON"); }
 function exportMD() {
-  const root = state.trees[state.active];
-  let out = "";
+  const root = state.trees[state.active]; let out = "";
   function walk(n, lvl) {
-    if (lvl > 0) {
-      const hashes = "#".repeat(Math.min(6, lvl));
-      const ttl = n.url ? `[${n.title}](${n.url})` : n.title;
-      out += `${hashes} ${ttl}\n`;
-      (n.notes || []).forEach(t => out += `- ${t}\n`);
-    } else {
-      const ttl = n.url ? `[${n.title}](${n.url})` : n.title;
-      out += `# ${ttl}\n\n`;
-    }
+    if (lvl > 0) { out += `${"#".repeat(Math.min(6, lvl))} ${n.url ? `[${n.title}](${n.url})` : n.title}\n`; (n.notes || []).forEach(t => out += `- ${t}\n`); }
+    else out += `# ${n.url ? `[${n.title}](${n.url})` : n.title}\n\n`;
     (n.children || []).forEach(c => walk(c, lvl + 1));
   }
-  walk(root, 0);
-  download(out, state.active + "-" + Date.now() + ".md", "text/markdown");
-  toast("EXPORTED · MARKDOWN");
+  walk(root, 0); download(out, state.active + "-" + Date.now() + ".md", "text/markdown"); toast("EXPORTED · MARKDOWN");
 }
 function download(content, name, type) {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = name; a.click();
-  URL.revokeObjectURL(url);
+  const blob = new Blob([content], { type }); const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url);
 }
 
 /* =========================================================
@@ -828,50 +792,41 @@ function download(content, name, type) {
    ========================================================= */
 let toastT;
 function toast(msg) {
-  const t = $(".toast");
-  t.innerHTML = `<span class="acc">●</span>${msg}`;
-  t.classList.add("show");
-  clearTimeout(toastT);
-  toastT = setTimeout(() => t.classList.remove("show"), 1600);
+  const t = $(".toast"); t.innerHTML = `<span class="acc">●</span>${msg}`;
+  t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 1600);
 }
 
 /* =========================================================
    INIT
    ========================================================= */
-function renderAll() {
-  applyTheme();
-  renderSidebar();
-  renderStage();
-  updateCrumbs();
-  saveState();
-}
+function renderAll() { applyTheme(); renderSidebar(); renderStage(); updateCrumbs(); saveState(); }
 
 async function init() {
   await loadAllMaps();
   renderAll();
   attachStagePanZoom();
 
-  $("#btn-add").addEventListener("click", () => addChild(state.trees[state.active]));
+  $("#btn-add").addEventListener("click", () => {
+    const root = state.trees[state.active];
+    const parent = state.selected ? findNodeById(root, state.selected) : root;
+    addChild(parent || root);
+  });
   $("#btn-fit").addEventListener("click", () => {
-    const v = getView();
-    v.x = window.innerWidth / 2 - 140; v.y = window.innerHeight / 2 - 80; v.k = 0.7;
-    applyTransform(); saveState();
+    const v = getView(); v.x = window.innerWidth / 2 - 140; v.y = window.innerHeight / 2 - 80; v.k = 0.7;
+    applyTransform(true); saveState();
   });
   $("#btn-export").addEventListener("click", exportJSON);
   $("#btn-export-md").addEventListener("click", exportMD);
   $("#btn-tweaks").addEventListener("click", () => openTweaks());
 
-  $(".zoom .zin").addEventListener("click", () => { const v=getView(); v.k=Math.min(2.5,v.k*1.15); applyTransform(); saveState(); updateCrumbs(); });
-  $(".zoom .zout").addEventListener("click", () => { const v=getView(); v.k=Math.max(0.25,v.k/1.15); applyTransform(); saveState(); updateCrumbs(); });
+  $(".zoom .zin").addEventListener("click", () => { const v=getView(); v.k=Math.min(2.5,v.k*1.15); applyTransform(true); saveState(); updateCrumbs(); });
+  $(".zoom .zout").addEventListener("click", () => { const v=getView(); v.k=Math.max(0.25,v.k/1.15); applyTransform(true); saveState(); updateCrumbs(); });
   $(".zoom .zfit").addEventListener("click", () => $("#btn-fit").click());
 
-  // initial center
-  const stg = $(".stg");
-  const v0 = getView();
+  const stg = $(".stg"); const v0 = getView();
   if (v0.x === 600 && v0.y === 400) { v0.x = stg.clientWidth / 2 - 140; v0.y = stg.clientHeight / 2 - 60; }
   applyTransform();
 
-  // keyboard shortcuts: Ctrl/Cmd+Z = undo, Ctrl/Cmd+Shift+Z or Ctrl+Y = redo
   window.addEventListener("keydown", (e) => {
     if (e.target && (e.target.isContentEditable || /input|textarea/i.test(e.target.tagName))) return;
     const meta = e.ctrlKey || e.metaKey;
@@ -879,7 +834,6 @@ async function init() {
     else if (meta && (e.shiftKey && e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) { e.preventDefault(); redo(); }
   });
 
-  // edit mode protocol
   window.addEventListener("message", (ev) => {
     if (!ev.data) return;
     if (ev.data.type === "__activate_edit_mode") openTweaks();
@@ -888,4 +842,5 @@ async function init() {
   window.parent.postMessage({ type: "__edit_mode_available" }, "*");
 }
 
-document.addEventListener("DOMContentLoaded", init);
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+else init();

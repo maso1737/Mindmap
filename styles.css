@@ -35,7 +35,8 @@
   --acc: #c8ff1a;       /* 蛍光ライムグリーン */
   --acc-ink: #0a0a0a;
   --hatch: rgba(10,10,10,0.08);
-  --grid: rgba(10,10,10,0.045);
+  --grid: rgba(10,10,10,0.028);
+  --grid-major: rgba(10,10,10,0.05);
   --node-bg: #ffffff;
   --panel-bg: #ffffff;
   --shadow: 0 0 0 1px var(--ink);
@@ -45,6 +46,12 @@
   --display: "Bank Gothic", "Square 721", "Space Grotesk", system-ui, sans-serif;
   --bauhaus: "Bauhaus 93", "Square 721", system-ui, sans-serif;
   --jp: "IBM Plex Sans JP", "Noto Sans JP", system-ui, sans-serif;
+
+  /* tDR easing: 速く動いてピタッと止まる */
+  --ez: cubic-bezier(0.2, 0, 0, 1);
+  --t-hover: 120ms;
+  --t-click: 240ms;
+  --t-layout: 380ms;
 }
 
 [data-theme="dark"] {
@@ -56,7 +63,8 @@
   --mute-2: #2a2a2a;
   --line: #f2f2ef;
   --hatch: rgba(242,242,239,0.08);
-  --grid: rgba(242,242,239,0.05);
+  --grid: rgba(242,242,239,0.03);
+  --grid-major: rgba(242,242,239,0.06);
   --node-bg: #0a0a0a;
   --panel-bg: #0a0a0a;
   --shadow: 0 0 0 1px var(--ink);
@@ -288,6 +296,10 @@ html, body {
   position: relative;
   overflow: hidden;
   background:
+    /* major grid (every 200px) */
+    linear-gradient(var(--grid-major) 1px, transparent 1px) 0 0/200px 200px,
+    linear-gradient(90deg, var(--grid-major) 1px, transparent 1px) 0 0/200px 200px,
+    /* minor grid (every 40px) */
     linear-gradient(var(--grid) 1px, transparent 1px) 0 0/40px 40px,
     linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0/40px 40px,
     var(--bg);
@@ -325,14 +337,52 @@ html, body {
 
 /* decor + grid above plate so they layer over the white */
 .stg__decor { z-index: 4 !important; }
-.stg {
-  background:
-    linear-gradient(var(--grid) 1px, transparent 1px) 0 0/40px 40px,
-    linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0/40px 40px,
-    var(--bg);
-}
 /* viewport (nodes) on top of everything */
 .stg__viewport { z-index: 5 !important; }
+
+/* Data-layer overlay on plate — faint coords/IDs/timecodes */
+.stg__data {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(72vw, calc(80vh * 16 / 9));
+  aspect-ratio: 16/9;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+  pointer-events: none;
+  font-family: var(--mono);
+  color: rgba(10,10,10,0.18);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  overflow: hidden;
+  clip-path: polygon(40px 0, 100% 0, 100% 100%, 0 100%, 0 40px);
+}
+.stg__data span {
+  position: absolute;
+  white-space: nowrap;
+}
+.stg__data .d-tc { top: 14px; right: 16px; }
+.stg__data .d-id1 { top: 32px; right: 16px; color: rgba(10,10,10,0.12); }
+.stg__data .d-id2 { top: 50px; left: 56px; }
+.stg__data .d-ver { bottom: 14px; right: 16px; }
+.stg__data .d-coord1 { bottom: 32px; left: 16px; }
+.stg__data .d-coord2 { top: 30%; left: 16px; writing-mode: vertical-rl; letter-spacing: 0.4em; opacity: 0.5; }
+.stg__data .d-block {
+  bottom: 14px; left: 30%;
+  width: 80px; height: 6px;
+  background: repeating-linear-gradient(90deg, rgba(10,10,10,0.18) 0 1px, transparent 1px 4px);
+}
+.stg__data .d-cross {
+  position: absolute;
+  width: 8px; height: 8px;
+  border-top: 1px solid rgba(10,10,10,0.18);
+  border-left: 1px solid rgba(10,10,10,0.18);
+}
+.stg__data .d-cross.tr { top: 60px; right: 60px; transform: rotate(90deg); }
+.stg__data .d-cross.bl { bottom: 60px; left: 60px; transform: rotate(-90deg); }
+.stg__data .d-meta { top: 50%; right: 16px; transform: translateY(-50%); writing-mode: vertical-rl; letter-spacing: 0.5em; opacity: 0.4; }
+[data-theme="dark"] .stg__data { color: rgba(10,10,10,0.16); }
 
 /* GHOST DECOR — large pale numerals & symbols behind canvas */
 .stg__decor {
@@ -475,6 +525,9 @@ html, body {
   will-change: transform;
   z-index: 2;
 }
+.stg__viewport.is-smooth {
+  transition: transform 360ms var(--ez);
+}
 
 /* Canvas overlays — registration marks, axes */
 .regmarks {
@@ -532,13 +585,20 @@ html, body {
   stroke: var(--line);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
-  opacity: 0.85;
+  opacity: 0.55;
+  transition: opacity var(--t-hover) var(--ez), stroke-width var(--t-hover) var(--ez), stroke var(--t-hover) var(--ez);
 }
+/* Green = ACTIVE only. Default edges from root: thin charcoal, not green */
 .edges .edge-acc {
-  stroke: var(--acc);
-  stroke-width: 3;
-  opacity: 1;
+  stroke: var(--line);
+  stroke-width: 1.25;
+  opacity: 0.7;
 }
+/* Hover state: fade non-related edges, highlight related */
+.stg.is-hovering .edges path { opacity: 0.18; stroke-width: 1; }
+.stg.is-hovering .edges path.edge-related { opacity: 1; stroke: var(--acc); stroke-width: 2; }
+/* Selection: explicit green */
+.edges path.edge-selected { stroke: var(--acc); stroke-width: 2.5; opacity: 1; }
 /* nodes above edges */
 .node { z-index: 2; }
 .node.is-root { z-index: 4; }
@@ -550,6 +610,16 @@ html, body {
 }
 .node.is-root .node__body, .node.is-root .node__head { background: var(--ink); }
 .node.lvl-1 .node__body, .node.lvl-1 .node__head { background: var(--bg); }
+
+/* halo around nodes to soften grid behind them */
+.node .node__body::before {
+  content: "";
+  position: absolute;
+  inset: -8px -10px;
+  background: radial-gradient(ellipse at center, var(--bg) 0%, var(--bg) 60%, transparent 100%);
+  z-index: -1;
+  pointer-events: none;
+}
 
 /* collapse toggle */
 .node__tog {
@@ -597,9 +667,13 @@ html, body {
   font-family: var(--mono);
   cursor: grab;
   user-select: none;
-  transition: box-shadow 0.12s, background 0.12s;
+  transition: opacity var(--t-hover) var(--ez), transform var(--t-click) var(--ez);
   padding: 2px 0;
 }
+/* hover-fade: when stage knows a node is hovered, dim everything except related */
+.stg.is-hovering .node { opacity: 0.32; }
+.stg.is-hovering .node.is-related { opacity: 1; }
+.stg.is-hovering .node.is-hovered { opacity: 1; }
 .node.dragging { cursor: grabbing; z-index: 200; }
 .node.dragging .node__title { background: var(--acc); color: #0a0a0a; padding: 2px 6px; }
 .node.is-selected { z-index: 50; }
@@ -712,9 +786,21 @@ html, body {
 }
 .node.is-root .node__title {
   font-family: var(--bauhaus);
-  font-size: 22px;
+  font-size: 26px;
   letter-spacing: 0.04em;
   font-weight: 400;
+  line-height: 1;
+}
+.node.lvl-1 .node__title {
+  font-size: 17px;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+.node.lvl-2 .node__title {
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+  text-transform: uppercase;
 }
 .node__title.has-jp { font-family: var(--jp); font-weight: 500; }
 
@@ -769,6 +855,29 @@ html, body {
   color: var(--mute);
   flex-shrink: 0;
 }
+.node__notes .n {
+  outline: none;
+  cursor: text;
+  min-height: 14px;
+  word-break: break-word;
+}
+.node__notes .n.is-empty::after {
+  content: attr(data-placeholder);
+  color: var(--mute-2);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  font-style: normal;
+}
+.node__notes .n:focus {
+  background: rgba(200,255,26,0.25);
+  margin: 0 -4px;
+  padding: 2px 4px;
+}
+.node.is-root .node__notes .n:focus { background: rgba(200,255,26,0.22); color: var(--bg); }
+.node.is-root .node__notes .n { color: rgba(255,255,255,0.85); }
+.node.is-root .node__notes .n::before { color: rgba(255,255,255,0.4); }
+.node.is-root .node__notes .n.is-empty::after { color: rgba(255,255,255,0.35); }
 
 .node__thumb {
   width: 100%;
@@ -1025,7 +1134,7 @@ html, body {
 /* ========== HELP HINT ============================== */
 .hint {
   position: absolute;
-  left: 16px; bottom: 16px;
+  left: 16px; bottom: 44px;
   font-family: var(--mono);
   font-size: 9px;
   letter-spacing: 0.06em;

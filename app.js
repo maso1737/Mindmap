@@ -472,13 +472,15 @@ function renderStage() {
     node.appendChild(body);
     node.appendChild(el("div", { class: "node__coord" }, fmtCoord(n.x, n.y)));
 
-    const actions = el("div", { class: "node__actions" },
-      el("button", { onclick: (e) => { e.stopPropagation(); editURL(n); } }, "URL"),
-      el("button", { onclick: (e) => { e.stopPropagation(); pickThumb(n); } }, "IMG"),
-      el("button", { onclick: (e) => { e.stopPropagation(); addChild(n); } }, "+ CHILD"),
-      el("button", { class: "del", onclick: (e) => { e.stopPropagation(); delNode(n); } }, "DEL"),
-    );
-    node.appendChild(actions);
+    if (!window.READONLY) {
+      const actions = el("div", { class: "node__actions" },
+        el("button", { onclick: (e) => { e.stopPropagation(); editURL(n); } }, "URL"),
+        el("button", { onclick: (e) => { e.stopPropagation(); pickThumb(n); } }, "IMG"),
+        el("button", { onclick: (e) => { e.stopPropagation(); addChild(n); } }, "+ CHILD"),
+        el("button", { class: "del", onclick: (e) => { e.stopPropagation(); delNode(n); } }, "DEL"),
+      );
+      node.appendChild(actions);
+    }
 
     attachNodeDrag(node, n);
     node.addEventListener("click", (ev) => {

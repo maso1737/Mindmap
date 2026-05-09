@@ -399,12 +399,14 @@ function renderStage() {
     const body = el("div", { class: "node__body" });
     const title = el("div", {
       class: "node__title" + (hasJP(n.title) ? " has-jp" : ""),
-      contenteditable: "true",
+      ...(window.READONLY ? {} : { contenteditable: "true" }),
       spellcheck: "false",
     }, n.title || "Untitled");
-    title.addEventListener("focus", () => pushHistory());
-    title.addEventListener("blur", () => { n.title = title.textContent.trim(); saveState(); });
-    title.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); title.blur(); } });
+    if (!window.READONLY) {
+      title.addEventListener("focus", () => pushHistory());
+      title.addEventListener("blur", () => { n.title = title.textContent.trim(); saveState(); });
+      title.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); title.blur(); } });
+    }
     body.appendChild(title);
 
     if (!isMin) {
@@ -414,45 +416,47 @@ function renderStage() {
         const noteText = (n.notes && n.notes[ni]) || "";
         const noteEl = el("div", {
           class: "n" + (noteText ? "" : " is-empty"),
-          contenteditable: "true",
+          ...(window.READONLY ? {} : { contenteditable: "true" }),
           spellcheck: "false",
           "data-placeholder": "+ NOTE",
           "data-note-idx": String(ni),
         }, noteText);
-        noteEl.addEventListener("focus", () => { pushHistory(); noteEl.classList.remove("is-empty"); });
-        noteEl.addEventListener("input", () => {
-          const v = noteEl.textContent;
-          if (!n.notes) n.notes = [];
-          n.notes[ni] = v;
-        });
-        noteEl.addEventListener("blur", () => {
-          const v = noteEl.textContent.trim();
-          if (!n.notes) n.notes = [];
-          n.notes[ni] = v;
-          // trim trailing empties
-          while (n.notes.length && !n.notes[n.notes.length - 1]) n.notes.pop();
-          if (!v) noteEl.classList.add("is-empty");
-          saveState();
-        });
-        noteEl.addEventListener("keydown", (ev) => {
-          if (ev.key === "Enter") {
-            ev.preventDefault();
-            // move to next note slot or add new one if room
-            const next = noteEl.parentElement.querySelector(`[data-note-idx="${ni + 1}"]`);
-            if (next) next.focus();
-            else if (ni < 2) {
-              noteEl.blur();
-              renderStage();
-              // focus newly-rendered last note
-              setTimeout(() => {
-                const dom = $(`.node[data-id="${n.id}"] [data-note-idx="${ni + 1}"]`);
-                if (dom) dom.focus();
-              }, 0);
-            } else {
-              noteEl.blur();
+        if (!window.READONLY) {
+          noteEl.addEventListener("focus", () => { pushHistory(); noteEl.classList.remove("is-empty"); });
+          noteEl.addEventListener("input", () => {
+            const v = noteEl.textContent;
+            if (!n.notes) n.notes = [];
+            n.notes[ni] = v;
+          });
+          noteEl.addEventListener("blur", () => {
+            const v = noteEl.textContent.trim();
+            if (!n.notes) n.notes = [];
+            n.notes[ni] = v;
+            // trim trailing empties
+            while (n.notes.length && !n.notes[n.notes.length - 1]) n.notes.pop();
+            if (!v) noteEl.classList.add("is-empty");
+            saveState();
+          });
+          noteEl.addEventListener("keydown", (ev) => {
+            if (ev.key === "Enter") {
+              ev.preventDefault();
+              // move to next note slot or add new one if room
+              const next = noteEl.parentElement.querySelector(`[data-note-idx="${ni + 1}"]`);
+              if (next) next.focus();
+              else if (ni < 2) {
+                noteEl.blur();
+                renderStage();
+                // focus newly-rendered last note
+                setTimeout(() => {
+                  const dom = $(`.node[data-id="${n.id}"] [data-note-idx="${ni + 1}"]`);
+                  if (dom) dom.focus();
+                }, 0);
+              } else {
+                noteEl.blur();
+              }
             }
-          }
-        });
+          });
+        }
         notes.appendChild(noteEl);
       }
       body.appendChild(notes);
@@ -648,6 +652,7 @@ function attachStagePanZoom() {
    NODE DRAG
    ========================================================= */
 function attachNodeDrag(elNode, n) {
+  if (window.READONLY) return;
   let dragging = false, started = false, sx = 0, sy = 0, ox = 0, oy = 0;
   elNode.addEventListener("mousedown", (e) => {
     if (e.target.closest(".node__title")) return;

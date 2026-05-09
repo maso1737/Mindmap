@@ -2,6 +2,23 @@
    EXTRAS — styles for sidebar add/reorder, modal, image popup, etc.
    ========================================================= */
 
+/* ---------- 0. Read-only mode ---------- */
+body.readonly #btn-add,
+body.readonly #btn-export-md,
+body.readonly #btn-export,
+body.readonly #btn-tweaks,
+body.readonly .hint,
+body.readonly .sb__add,
+body.readonly .sb__actions { display: none !important; }
+
+body.readonly [contenteditable] {
+  pointer-events: none;
+  cursor: default;
+}
+
+body.readonly .node { cursor: default; }
+body.readonly .node__tog { pointer-events: auto; cursor: pointer; }
+
 /* ---------- 1. Sidebar: add button + reorder controls ---------- */
 .sb__add {
   appearance: none;

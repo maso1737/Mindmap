@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>MINDMAP · tDR</title>
+<title>MINDMAP · tDR · WIPEOUT</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="styles.css?v=14" />
-<link rel="stylesheet" href="extras.css?v=7" />
+<link rel="stylesheet" href="styles.css?v=8" />
+<link rel="stylesheet" href="wipeout.css?v=1" />
 <template id="__bundler_thumbnail">
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 140">
   <rect width="200" height="140" fill="#f2f2ef"/>
@@ -103,6 +103,11 @@
       <button class="zout">−</button>
       <button class="zfit" style="font-size:9px;">FIT</button>
     </div>
+    <div class="w-hud" aria-hidden="true">
+      <div class="row"><span class="dot"></span><b>FX · LIVE</b></div>
+      <div class="row">CANVAS · 02 / SCAN · ON</div>
+      <div class="row">EDGE · GLOW · TRAIL</div>
+    </div>
     <div class="hint">
       <span><b>DRAG</b> · MOVE NODE</span>
       <span><b>SHIFT+DRAG</b> · RE-PARENT</span>
@@ -128,6 +133,8 @@
 <!-- TOAST -->
 <div class="toast"></div>
 
+
+
 <!-- editmode defaults -->
 <script>
 const __TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
@@ -137,7 +144,7 @@ const __TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "nodeStyle": "block"
 }/*EDITMODE-END*/;
 </script>
-<script src="app.js?v=10"></script>
-<script src="extras.js?v=8"></script>
+<script src="app.js?v=8"></script>
+<script src="wipeout.js?v=1"></script>
 </body>
 </html>

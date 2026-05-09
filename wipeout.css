@@ -1,0 +1,109 @@
+/* =========================================================
+   WIPEOUT / tDR UI — overlays for canvas-based fx + scanlines
+   ========================================================= */
+
+/* Canvas layers */
+.w-canvas {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+.w-canvas--bg {
+  /* full viewport — under everything */
+  z-index: 0;
+  mix-blend-mode: multiply;
+  opacity: 0.9;
+}
+.w-canvas--fx {
+  /* scoped inside .stg, sits between plate and nodes */
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 4 !important;
+  mix-blend-mode: multiply;
+}
+[data-theme="dark"] .w-canvas--bg,
+[data-theme="dark"] .w-canvas--fx {
+  mix-blend-mode: screen;
+  opacity: 0.85;
+}
+
+/* Scanline overlay — global, very subtle */
+body.w-on::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.025) 0,
+    rgba(0, 0, 0, 0.025) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  z-index: 9000;
+  mix-blend-mode: multiply;
+}
+[data-theme="dark"] body.w-on::before {
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.04) 0,
+    rgba(255, 255, 255, 0.04) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  mix-blend-mode: screen;
+}
+
+/* Active node — soft halo (CSS, complements canvas glow) */
+body.w-on .node.is-selected .node__title,
+body.w-on .node.is-hovered .node__title {
+  text-shadow: 0 0 12px rgba(200, 255, 26, 0.55);
+}
+
+/* When canvas FX is on, fade existing SVG edges (we redraw them) */
+body.w-on .edges {
+  opacity: 0 !important;
+  transition: opacity 200ms var(--ez);
+}
+
+/* Hover: sharpen the focused node, dim siblings further (existing rules
+   already handle .is-related — we just nudge contrast) */
+body.w-on .stg.is-hovering .node:not(.is-related):not(.is-hovered) {
+  filter: contrast(0.85);
+}
+
+/* Time-staggered child-reveal hook (used by activate ripples) */
+body.w-on .node.w-pop {
+  animation: w-pop 320ms var(--ez) both;
+}
+@keyframes w-pop {
+  0%   { opacity: 0; transform: translate(-50%, -50%) translateY(-6px) scale(0.96); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: translate(-50%, -50%) translateY(0) scale(1); }
+}
+
+/* HUD chip indicating canvas mode */
+.w-hud {
+  position: absolute;
+  right: 56px; top: 16px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--mute);
+  text-transform: uppercase;
+  pointer-events: none;
+}
+.w-hud .row { display: flex; gap: 6px; align-items: center; }
+.w-hud .dot {
+  width: 6px; height: 6px;
+  background: var(--acc);
+  display: inline-block;
+  animation: w-blink 1.4s infinite;
+}
+@keyframes w-blink { 50% { opacity: 0.25; } }
+.w-hud b { color: var(--ink); font-weight: 600; letter-spacing: 0.08em; }

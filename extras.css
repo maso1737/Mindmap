@@ -1,0 +1,613 @@
+/* =========================================================
+   EXTRAS — styles for sidebar add/reorder, modal, image popup, etc.
+   ========================================================= */
+
+/* ---------- 1. Sidebar: add button + reorder controls ---------- */
+.sb__add {
+  appearance: none;
+  width: 100%;
+  background: var(--ink);
+  color: var(--bg);
+  border: none;
+  border-bottom: 1px solid var(--line);
+  padding: 14px 20px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sb__add:hover { background: var(--acc); color: #0a0a0a; }
+.sb__add .dot {
+  width: 6px; height: 6px;
+  background: var(--acc);
+  display: inline-block;
+}
+.sb__add:hover .dot { background: #0a0a0a; }
+
+.cat { position: relative; }
+.cat__ord {
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 22px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--mute-2);
+}
+.cat__ord button {
+  flex: 1;
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--mute-2);
+  font-family: var(--mono);
+  font-size: 8px;
+  color: var(--mute);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+.cat__ord button:last-child { border-bottom: none; }
+.cat__ord button:hover { background: var(--ink); color: var(--bg); }
+.cat.is-active .cat__ord { border-left-color: rgba(10,10,10,0.2); }
+.cat.is-active .cat__ord button { color: rgba(10,10,10,0.6); border-bottom-color: rgba(10,10,10,0.2); }
+.cat.is-active .cat__ord button:last-child { border-bottom: none; }
+.cat__meta { padding-right: 30px; }
+
+/* ---------- 2. Node title base color: slightly darker grey ---------- */
+.node:not(.is-root):not(.is-selected) .node__title {
+  color: #4a4a4a;
+}
+.node:not(.is-root):not(.is-selected) .node__title:focus {
+  color: #0a0a0a;
+}
+[data-theme="dark"] .node:not(.is-root):not(.is-selected) .node__title {
+  color: #b8b8b4;
+}
+
+/* ---------- 3. Notes: resizable column ---------- */
+.node__notes {
+  resize: horizontal;
+  overflow: auto;
+  min-width: 140px;
+  max-width: 640px;
+}
+.node__notes .n {
+  white-space: pre-wrap;        /* respect newlines from Enter */
+  word-break: break-word;
+}
+
+/* ---------- 4. Thumb 90×90 square + hover popup ---------- */
+.node__thumb {
+  width: 90px !important;
+  height: 90px !important;
+  aspect-ratio: 1/1 !important;
+  background-size: cover;
+  background-position: center;
+  margin-bottom: 8px;
+  border: 1px solid var(--mute-2);
+}
+.node.is-root .node__thumb {
+  margin: 12px 14px 0;
+}
+.ex-imgpop {
+  position: fixed;
+  z-index: 9500;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 6px;
+  box-shadow: 0 12px 28px rgba(0,0,0,0.18);
+  display: none;
+  pointer-events: none;
+}
+.ex-imgpop.show { display: block; }
+.ex-imgpop img {
+  display: block;
+  max-width: min(60vw, 720px);
+  max-height: min(70vh, 720px);
+  width: auto;
+  height: auto;
+}
+
+/* DEL-IMG button in node actions */
+.node__actions button.del-img {
+  color: var(--ink);
+}
+.node__actions button.del-img:hover {
+  background: #e64141;
+  color: #fff;
+}
+
+/* ---------- 5. Unified MODAL ---------- */
+.ex-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: none;
+}
+.ex-modal.is-open { display: block; }
+.ex-modal__bg {
+  position: absolute;
+  inset: 0;
+  background: rgba(10,10,10,0.42);
+  backdrop-filter: blur(2px);
+}
+.ex-modal__panel {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(440px, 92vw);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  box-shadow: 0 18px 48px rgba(0,0,0,0.28);
+  font-family: var(--mono);
+  color: var(--ink);
+}
+[data-theme="dark"] .ex-modal__panel { background: #141414; }
+
+.ex-modal__hd {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--ink);
+  color: var(--bg);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.ex-modal__title { font-weight: 600; }
+.ex-modal__x {
+  appearance: none;
+  background: none;
+  border: none;
+  color: var(--bg);
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.ex-modal__body {
+  padding: 18px 16px 8px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ex-modal__msg {
+  font-family: var(--jp);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.ex-label {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mute);
+  display: block;
+  margin-top: 4px;
+}
+.ex-input, .ex-modal input[type="text"], .ex-modal textarea {
+  width: 100%;
+  appearance: none;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  outline: none;
+}
+.ex-input:focus { background: var(--bg); box-shadow: inset 0 0 0 1px var(--acc); }
+
+.ex-modal__ft {
+  padding: 12px 14px;
+  border-top: 1px solid var(--mute-2);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.ex-modal__ft button {
+  appearance: none;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 8px 14px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink);
+  cursor: pointer;
+}
+.ex-modal__ft .ex-modal__ok {
+  background: var(--ink);
+  color: var(--bg);
+}
+.ex-modal__ft .ex-modal__ok.is-danger {
+  background: #e64141;
+  border-color: #e64141;
+  color: #fff;
+}
+.ex-modal__ft button:hover { filter: brightness(1.05); }
+
+/* ---------- 6. Zoom controls — repositioned + AXIS clearance ---------- */
+.zoom {
+  /* nudge the panel down so it doesn't overlap the top-right axis text */
+  top: 56px !important;
+}
+.stg__axis .ax-tr {
+  /* leave room for the zoom panel which sits flush to top-right */
+  padding-right: 56px;
+}
+
+/* ---------- 7. Header buttons SAVE/LOAD DEFAULT ---------- */
+#btn-save-default .dot { background: var(--acc); }
+#btn-load-default .dot { background: var(--ink); }
+#btn-save-default:hover .dot,
+#btn-load-default:hover .dot { background: var(--bg); }
+
+/* =========================================================
+   2nd-pass refinements (per feedback v2)
+   ========================================================= */
+
+/* — Title base: pure WHITE for ALL non-root nodes, regardless of level. */
+.stg .node:not(.is-root) .node__title,
+.stg .node.lvl-1 .node__title,
+.stg .node.lvl-2 .node__title,
+.stg .node.lvl-3 .node__title,
+.stg .node.lvl-4 .node__title,
+.stg .node.lvl-5 .node__title,
+.stg .node.lvl-6 .node__title {
+  background: #ffffff !important;
+  color: var(--ink);
+}
+.stg .node:not(.is-root):not(.is-selected) .node__title {
+  color: #4a4a4a;
+}
+
+/* — Deeper-level titles: scale up + bolder so they don't blend with
+     note content. lvl-2 was 12px / 600; bump to 14px / 700 + spacing.
+     lvl-3..6 was 11px; bump to 13px / 700. */
+.stg .node.lvl-2 .node__title {
+  font-size: 14px !important;
+  letter-spacing: 0.05em !important;
+  font-weight: 700 !important;
+}
+.stg .node.lvl-3 .node__title,
+.stg .node.lvl-4 .node__title,
+.stg .node.lvl-5 .node__title,
+.stg .node.lvl-6 .node__title {
+  font-size: 13px !important;
+  letter-spacing: 0.04em !important;
+  font-weight: 700 !important;
+}
+
+/* — Selected title: 15% black overlay (legible, not heavy) */
+.stg .node.is-selected:not(.is-root) .node__title {
+  background: rgba(10, 10, 10, 0.15) !important;
+  color: var(--ink) !important;
+  text-shadow: none;
+}
+[data-theme="dark"] .stg .node:not(.is-root) .node__title {
+  background: var(--bg) !important;
+  color: var(--ink);
+}
+[data-theme="dark"] .stg .node.is-selected:not(.is-root) .node__title {
+  background: rgba(255, 255, 255, 0.15) !important;
+}
+
+/* — Title states (per feedback v3):
+     editing (focus) = GREEN (acc), moving (drag) = BLACK (ink) */
+.stg .node:not(.is-root) .node__title:focus {
+  background: var(--acc) !important;
+  color: #0a0a0a !important;
+  box-shadow: inset 0 0 0 1px rgba(10,10,10,0.55);
+}
+
+/* === ■ prefix on every non-root title (always visible, never editable) === */
+.stg .node:not(.is-root) .node__title::before {
+  content: "■\00a0";
+  font-family: var(--mono);
+  font-weight: 700;
+  letter-spacing: 0;
+  color: currentColor;
+  /* keep marker out of contenteditable selection */
+  user-select: none;
+  -webkit-user-modify: read-only;
+}
+/* shrink ■ a touch at deeper levels so it tracks with title size */
+.stg .node.lvl-3 .node__title::before,
+.stg .node.lvl-4 .node__title::before,
+.stg .node.lvl-5 .node__title::before,
+.stg .node.lvl-6 .node__title::before {
+  font-size: 0.85em;
+}
+.stg .node.dragging:not(.is-root) .node__title {
+  background: var(--ink) !important;
+  color: var(--bg) !important;
+  padding: 2px 6px !important;
+}
+/* root variants */
+.stg .node.is-root .node__title:focus {
+  background: var(--acc) !important;
+  color: #0a0a0a !important;
+}
+.stg .node.is-root.dragging .node__title {
+  background: var(--ink) !important;
+  color: var(--bg) !important;
+}
+
+/* — URL link: keep BLACK as default for readability against white title.
+     ROOT keeps accent color. */
+.node__url a {
+  color: var(--ink) !important;
+  text-decoration: underline !important;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.node__url a:hover {
+  background: var(--acc);
+  color: var(--ink) !important;
+  padding: 0 2px;
+}
+.node.is-root .node__url a {
+  color: var(--acc) !important;
+}
+
+/* — Action bar: ONLY visible on click/select (not hover). Bottom of node. */
+.node__actions {
+  position: absolute !important;
+  top: auto !important;
+  bottom: -22px !important;
+  right: 0 !important;
+  display: none !important;
+  gap: 0;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  z-index: 60;
+  font-size: 8px !important;
+  letter-spacing: 0.08em;
+}
+.node.is-selected .node__actions {
+  display: flex !important;
+}
+.node__actions button {
+  padding: 3px 6px !important;
+  font-size: 8px !important;
+  letter-spacing: 0.08em !important;
+  min-width: 0 !important;
+  border-right: 1px solid var(--mute-2);
+  white-space: nowrap;
+}
+.node__actions button:last-child { border-right: none !important; }
+
+/* — Notes: leading "—" on EVERY line including the first.
+     Approach: when .n contains block children, hide the .n's own dash
+     and give each block child a leading dash. We also must guarantee
+     a block wrapper exists for the FIRST line — extras.js handles that. */
+.node__notes .n[data-has-blocks="1"] {
+  display: block;
+}
+.node__notes .n[data-has-blocks="1"]::before { content: none !important; }
+.node__notes .n[data-has-blocks="1"] > div,
+.node__notes .n[data-has-blocks="1"] > p {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  min-height: 1em;
+}
+.node__notes .n[data-has-blocks="1"] > div::before,
+.node__notes .n[data-has-blocks="1"] > p::before {
+  content: "—";
+  color: var(--mute);
+  flex-shrink: 0;
+  user-select: none;
+}
+.node.is-root .node__notes .n[data-has-blocks="1"] > div::before,
+.node.is-root .node__notes .n[data-has-blocks="1"] > p::before {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* =========================================================
+   8. WHITE-PLATE HUD — turn the empty white area into a
+      low-density information layer (per "白地問題" spec)
+   ========================================================= */
+
+/* faint grid INSIDE the plate so it stops reading as a void */
+.stg__plate {
+  background:
+    linear-gradient(rgba(10,10,10,0.022) 1px, transparent 1px) 0 0/40px 40px,
+    linear-gradient(90deg, rgba(10,10,10,0.022) 1px, transparent 1px) 0 0/40px 40px,
+    linear-gradient(rgba(10,10,10,0.04) 1px, transparent 1px) 0 0/200px 200px,
+    linear-gradient(90deg, rgba(10,10,10,0.04) 1px, transparent 1px) 0 0/200px 200px,
+    #ffffff !important;
+}
+
+/* HUD layer — sits on top of the plate, under the viewport */
+.stg__hud {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(72vw, calc(80vh * 16 / 9));
+  aspect-ratio: 16/9;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+  pointer-events: none;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(10,10,10,0.55);
+  overflow: hidden;
+  clip-path: polygon(40px 0, 100% 0, 100% 100%, 0 100%, 0 40px);
+}
+
+/* scattered low-opacity noise glyphs — readable as info but not as text */
+.stg__hud .hud-noise {
+  position: absolute;
+  font-size: 8px;
+  color: rgba(10,10,10,0.18);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  font-feature-settings: "tnum";
+}
+.stg__hud .hud-noise.dim { color: rgba(10,10,10,0.10); }
+.stg__hud .hud-noise.acc { color: rgba(10,10,10,0.32); }
+
+/* live readout — bottom-left corner of plate */
+.stg__hud .hud-readout {
+  position: absolute;
+  left: 18px; bottom: 16px;
+  display: grid;
+  grid-template-columns: auto auto;
+  column-gap: 8px;
+  row-gap: 2px;
+  font-size: 9px;
+  color: rgba(10,10,10,0.62);
+  font-feature-settings: "tnum";
+}
+.stg__hud .hud-readout .k { color: rgba(10,10,10,0.4); }
+.stg__hud .hud-readout .v { color: rgba(10,10,10,0.85); font-weight: 600; }
+.stg__hud .hud-readout .v.acc { color: #0a0a0a; background: var(--acc); padding: 0 4px; }
+
+/* timecode — top-right of plate */
+.stg__hud .hud-tc {
+  position: absolute;
+  right: 18px; top: 14px;
+  font-size: 10px;
+  color: rgba(10,10,10,0.78);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  font-feature-settings: "tnum";
+}
+.stg__hud .hud-tc::before {
+  content: "TC ";
+  color: rgba(10,10,10,0.35);
+  font-weight: 400;
+}
+
+/* blinking REC dot beside timecode */
+.stg__hud .hud-rec {
+  position: absolute;
+  right: 18px; top: 30px;
+  font-size: 8px;
+  color: rgba(10,10,10,0.5);
+  letter-spacing: 0.12em;
+}
+.stg__hud .hud-rec::before {
+  content: "";
+  display: inline-block;
+  width: 6px; height: 6px;
+  background: var(--acc);
+  margin-right: 6px;
+  vertical-align: 1px;
+  animation: blk 1.2s infinite;
+}
+
+/* corner crosses on plate corners */
+.stg__hud .hud-crx {
+  position: absolute;
+  width: 10px; height: 10px;
+  border-color: rgba(10,10,10,0.35);
+  border-style: solid;
+  border-width: 0;
+}
+.stg__hud .hud-crx.tl { top: 8px; left: 8px;     border-top-width: 1px; border-left-width: 1px; }
+.stg__hud .hud-crx.tr { top: 8px; right: 8px;    border-top-width: 1px; border-right-width: 1px; }
+.stg__hud .hud-crx.bl { bottom: 8px; left: 8px;  border-bottom-width: 1px; border-left-width: 1px; }
+.stg__hud .hud-crx.br { bottom: 8px; right: 8px; border-bottom-width: 1px; border-right-width: 1px; }
+
+/* tick scale along bottom edge of plate */
+.stg__hud .hud-scale {
+  position: absolute;
+  left: 18%; right: 28%;
+  bottom: 6px;
+  height: 6px;
+  background-image: linear-gradient(90deg, rgba(10,10,10,0.28) 1px, transparent 1px);
+  background-size: 24px 100%;
+  opacity: 0.7;
+}
+
+/* sector label, vertical, mid-right */
+.stg__hud .hud-sector {
+  position: absolute;
+  right: 6px; top: 38%;
+  writing-mode: vertical-rl;
+  font-size: 8px;
+  color: rgba(10,10,10,0.32);
+  letter-spacing: 0.5em;
+}
+
+/* hide the older .stg__data layer — superseded by .stg__hud */
+.stg__data { display: none; }
+
+[data-theme="dark"] .stg__plate {
+  background:
+    linear-gradient(rgba(10,10,10,0.022) 1px, transparent 1px) 0 0/40px 40px,
+    linear-gradient(90deg, rgba(10,10,10,0.022) 1px, transparent 1px) 0 0/40px 40px,
+    linear-gradient(rgba(10,10,10,0.04) 1px, transparent 1px) 0 0/200px 200px,
+    linear-gradient(90deg, rgba(10,10,10,0.04) 1px, transparent 1px) 0 0/200px 200px,
+    #ffffff !important;
+}
+
+/* =========================================================
+   9. READONLY MODE — ?readonly in URL = view-only
+   ========================================================= */
+.is-readonly .node__title,
+.is-readonly .node__notes .n {
+  cursor: default !important;
+  pointer-events: none !important;
+}
+.is-readonly .node__tog,
+.is-readonly .node__actions,
+.is-readonly .node__handle,
+.is-readonly #btn-add,
+.is-readonly #btn-export,
+.is-readonly #btn-export-md,
+.is-readonly #btn-save-default,
+.is-readonly #btn-load-default,
+.is-readonly #btn-tweaks,
+.is-readonly .sb__add,
+.is-readonly .cat__ord { display: none !important; }
+
+.is-readonly .stg { cursor: grab; }
+.is-readonly .stg.is-panning { cursor: grabbing; }
+
+/* VIEW ONLY badge */
+.ro-badge {
+  position: fixed;
+  top: 0; left: 50%;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: var(--bg);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 3px 14px;
+  z-index: 9999;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ro-badge::before {
+  content: "";
+  width: 6px; height: 6px;
+  background: var(--mute);
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+
+

@@ -4,23 +4,30 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>MINDMAP · tDR</title>
+<meta name="ext-resource-dependency" content="data/ZBRUSH.md" data-resource-id="md_ZBRUSH" />
+<meta name="ext-resource-dependency" content="data/3dsmax.md" data-resource-id="md_3dsmax" />
+<meta name="ext-resource-dependency" content="data/design.md" data-resource-id="md_design" />
+<meta name="ext-resource-dependency" content="data/hud.md" data-resource-id="md_hud" />
+<meta name="ext-resource-dependency" content="data/music-video.md" data-resource-id="md_music_video" />
+<meta name="ext-resource-dependency" content="data/prepro.md" data-resource-id="md_prepro" />
+<template id="__bundler_thumbnail" data-bg-color="#f2f2ef">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect x="60" y="60" width="1080" height="680" fill="#ffffff" stroke="#0a0a0a" stroke-width="2"/>
+    <polygon points="60,60 60,140 140,60" fill="#f2f2ef"/>
+    <line x1="60" y1="140" x2="140" y2="60" stroke="#0a0a0a" stroke-width="2"/>
+    <rect x="200" y="200" width="160" height="60" fill="#0a0a0a"/>
+    <rect x="440" y="180" width="64" height="6" fill="#c8ff1a"/>
+    <line x1="440" y1="220" x2="600" y2="220" stroke="#0a0a0a" stroke-width="2"/>
+    <line x1="440" y1="320" x2="600" y2="320" stroke="#0a0a0a" stroke-width="2"/>
+    <line x1="440" y1="420" x2="600" y2="420" stroke="#0a0a0a" stroke-width="2"/>
+    <text x="900" y="600" font-family="monospace" font-size="240" fill="#d8d8d4" font-weight="700">01</text>
+    <text x="200" y="160" font-family="monospace" font-size="22" fill="#0a0a0a" font-weight="700">MIND/MAP · tDR</text>
+  </svg>
+</template>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="styles.css?v=14" />
-<link rel="stylesheet" href="extras.css?v=7" />
-<template id="__bundler_thumbnail">
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 140">
-  <rect width="200" height="140" fill="#f2f2ef"/>
-  <rect x="14" y="14" width="20" height="20" fill="#c8ff1a"/>
-  <rect x="40" y="60" width="36" height="20" fill="#0a0a0a"/>
-  <line x1="76" y1="70" x2="110" y2="50" stroke="#0a0a0a" stroke-width="1.5"/>
-  <line x1="76" y1="70" x2="110" y2="90" stroke="#0a0a0a" stroke-width="1.5"/>
-  <rect x="110" y="42" width="50" height="14" fill="none" stroke="#0a0a0a" stroke-width="1"/>
-  <rect x="110" y="84" width="50" height="14" fill="none" stroke="#0a0a0a" stroke-width="1"/>
-  <text x="14" y="124" font-family="monospace" font-size="9" fill="#0a0a0a" letter-spacing="2">MIND / MAP</text>
-</svg>
-</template>
+<link rel="stylesheet" href="styles.css?v=7" />
 </head>
 <body>
 <div class="shell">
@@ -33,7 +40,7 @@
     </div>
     <div class="hd__crumbs"></div>
     <div class="hd__tools">
-      <button id="btn-add" title="Add child to selected node (or root)"><span class="dot"></span>+ NODE</button>
+      <button id="btn-add" title="Add child to root"><span class="dot"></span>+ NODE</button>
       <button id="btn-fit" title="Fit to view"><span class="dot"></span>FIT</button>
       <button id="btn-export-md">EXPORT.MD</button>
       <button id="btn-export">EXPORT.JSON</button>
@@ -54,18 +61,6 @@
   <!-- STAGE -->
   <main class="stg" data-screen-label="Mindmap Canvas">
     <div class="stg__plate"></div>
-    <div class="stg__data" aria-hidden="true">
-      <span class="d-tc">TC 00:14:23:08</span>
-      <span class="d-id1">ID · MM-2026-01 ⁄ N1</span>
-      <span class="d-id2">SET · A2 ⁄ ISO 216</span>
-      <span class="d-ver">REV 01.0 — 2026.01</span>
-      <span class="d-coord1">[ 55°36'24.2"N — 2°45'14"W ]</span>
-      <span class="d-coord2">SECTOR · 04 / DAILY / SERIES</span>
-      <span class="d-meta">INTERFACE · BOLD · CONTRAST · 96</span>
-      <span class="d-cross tr"></span>
-      <span class="d-cross bl"></span>
-      <span class="d-block"></span>
-    </div>
     <div class="stg__decor">
       <div class="gh-ticks-major"></div>
       <div class="gh-ticks"></div>
@@ -137,7 +132,28 @@ const __TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "nodeStyle": "block"
 }/*EDITMODE-END*/;
 </script>
-<script src="app.js?v=10"></script>
-<script src="extras.js?v=8"></script>
+<script src="app.js?v=7"></script>
+<script>
+// Override CATEGORIES file paths with bundled blob URLs
+(function(){
+  const map = {
+    "ZBRUSH": "md_ZBRUSH",
+    "3dsmax": "md_3dsmax",
+    "design": "md_design",
+    "hud": "md_hud",
+    "music-video": "md_music_video",
+    "prepro": "md_prepro"
+  };
+  const _check = setInterval(() => {
+    if (typeof CATEGORIES !== "undefined" && window.__resources) {
+      CATEGORIES.forEach(c => {
+        const id = map[c.id];
+        if (id && window.__resources[id]) c.file = window.__resources[id];
+      });
+      clearInterval(_check);
+    }
+  }, 10);
+})();
+</script>
 </body>
 </html>

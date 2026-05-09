@@ -9,13 +9,7 @@
   font-style: normal;
   font-display: swap;
 }
-@font-face {
-  font-family: "Bauhaus 93";
-  src: url("fonts/BAUHS93.TTF") format("truetype");
-  font-weight: 400 900;
-  font-style: normal;
-  font-display: swap;
-}
+/* Bauhaus 93 removed — using Bank Gothic for display */
 @font-face {
   font-family: "Square 721";
   src: url("fonts/Square_721_BT.ttf") format("truetype");
@@ -40,18 +34,17 @@
   --node-bg: #ffffff;
   --panel-bg: #ffffff;
   --shadow: 0 0 0 1px var(--ink);
-
-  --mono: "JetBrains Mono", "IBM Plex Mono", "Space Mono", ui-monospace, monospace;
-  --sans: "Square 721", "Bank Gothic", "Space Grotesk", "Helvetica Neue", system-ui, sans-serif;
-  --display: "Bank Gothic", "Square 721", "Space Grotesk", system-ui, sans-serif;
-  --bauhaus: "Bauhaus 93", "Square 721", system-ui, sans-serif;
-  --jp: "IBM Plex Sans JP", "Noto Sans JP", system-ui, sans-serif;
-
   /* tDR easing: 速く動いてピタッと止まる */
   --ez: cubic-bezier(0.2, 0, 0, 1);
   --t-hover: 120ms;
   --t-click: 240ms;
   --t-layout: 380ms;
+
+  --mono: "JetBrains Mono", "IBM Plex Mono", "Space Mono", ui-monospace, monospace;
+  --sans: "Square 721", "Bank Gothic", "Space Grotesk", "Helvetica Neue", system-ui, sans-serif;
+  --display: "Bank Gothic", "Square 721", "Space Grotesk", system-ui, sans-serif;
+  --bauhaus: "Bank Gothic", "Square 721", system-ui, sans-serif;
+  --jp: "IBM Plex Sans JP", "Noto Sans JP", system-ui, sans-serif;
 }
 
 [data-theme="dark"] {
@@ -232,7 +225,7 @@ html, body {
   min-width: 0;
 }
 .cat__t {
-  font-family: var(--display);
+  font-family: "Bank Gothic", "Square 721", "Space Grotesk", system-ui, sans-serif;
   font-size: 15px;
   font-weight: 500;
   letter-spacing: 0.14em;
@@ -333,12 +326,6 @@ html, body {
   background: linear-gradient(135deg, transparent 49.5%, var(--mute-2) 49.5%, var(--mute-2) 50.5%, transparent 50.5%);
   pointer-events: none;
 }
-[data-theme="dark"] .stg__plate { background: #ffffff; }
-
-/* decor + grid above plate so they layer over the white */
-.stg__decor { z-index: 4 !important; }
-/* viewport (nodes) on top of everything */
-.stg__viewport { z-index: 5 !important; }
 
 /* Data-layer overlay on plate — faint coords/IDs/timecodes */
 .stg__data {
@@ -383,6 +370,12 @@ html, body {
 .stg__data .d-cross.bl { bottom: 60px; left: 60px; transform: rotate(-90deg); }
 .stg__data .d-meta { top: 50%; right: 16px; transform: translateY(-50%); writing-mode: vertical-rl; letter-spacing: 0.5em; opacity: 0.4; }
 [data-theme="dark"] .stg__data { color: rgba(10,10,10,0.16); }
+[data-theme="dark"] .stg__plate { background: #ffffff; }
+
+/* decor + grid above plate so they layer over the white */
+.stg__decor { z-index: 4 !important; }
+/* viewport (nodes) on top of everything */
+.stg__viewport { z-index: 5 !important; }
 
 /* GHOST DECOR — large pale numerals & symbols behind canvas */
 .stg__decor {
@@ -608,9 +601,6 @@ html, body {
   position: relative;
   background: var(--bg);
 }
-.node.is-root .node__body, .node.is-root .node__head { background: var(--ink); }
-.node.lvl-1 .node__body, .node.lvl-1 .node__head { background: var(--bg); }
-
 /* halo around nodes to soften grid behind them */
 .node .node__body::before {
   content: "";
@@ -620,6 +610,8 @@ html, body {
   z-index: -1;
   pointer-events: none;
 }
+.node.is-root .node__body, .node.is-root .node__head { background: var(--ink); }
+.node.lvl-1 .node__body, .node.lvl-1 .node__head { background: var(--bg); }
 
 /* collapse toggle */
 .node__tog {
@@ -783,6 +775,7 @@ html, body {
   word-break: break-word;
   outline: none;
   cursor: text;
+  transition: background var(--t-hover) var(--ez), color var(--t-hover) var(--ez), padding var(--t-hover) var(--ez);
 }
 .node.is-root .node__title {
   font-family: var(--bauhaus);
@@ -824,7 +817,7 @@ html, body {
 .node__url a {
   color: var(--ink);
   text-decoration: none;
-  border-bottom: 1px solid var(--ink);
+  border-bottom: none;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -849,17 +842,15 @@ html, body {
   display: flex;
   gap: 6px;
   padding: 2px 0;
+  outline: none;
+  cursor: text;
+  min-height: 14px;
+  word-break: break-word;
 }
 .node__notes .n::before {
   content: "—";
   color: var(--mute);
   flex-shrink: 0;
-}
-.node__notes .n {
-  outline: none;
-  cursor: text;
-  min-height: 14px;
-  word-break: break-word;
 }
 .node__notes .n.is-empty::after {
   content: attr(data-placeholder);
@@ -1147,5 +1138,7 @@ html, body {
   background: var(--bg);
   padding: 6px 10px;
   border: 1px solid var(--mute-2);
+  z-index: 2;
 }
+.stg__axis .ax-bl { bottom: 8px; left: 12px; z-index: 1; }
 .hint b { color: var(--ink); font-weight: 600; }

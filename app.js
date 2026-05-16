@@ -15,6 +15,7 @@ window.CATEGORIES = [
   { id: "hud",          file: "data/hud.md",          label: "HUD",           sub: "UI / SCI-FI / SPECS",    jp: "" },
   { id: "music-video",  file: "data/music-video.md",  label: "MUSIC · VIDEO", sub: "AE / 3D / REFERENCE",    jp: "" },
   { id: "prepro",       file: "data/prepro.md",       label: "PRE · PROD",    sub: "CONCEPT / STORYBOARD",   jp: "プリプロダクション" },
+  { id: "ae2026",       file: "data/ae2026.md",       label: "AE 2026",       sub: "MOTION / VTuber / 2.5D", jp: "" },
 ];
 const CATEGORIES = window.CATEGORIES;
 window.state = null;

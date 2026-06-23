@@ -3,6 +3,22 @@
    ========================================================= */
 
 @font-face {
+  font-family: "JetBrains Mono";
+  src: local("JetBrains Mono"), local("JetBrainsMono-Regular");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans JP";
+  src: local("IBM Plex Sans JP"), local("IBMPlexSansJP-Regular");
+  font-weight: 100 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
   font-family: "Bank Gothic";
   src: url("fonts/bank-gothic-light-bt.ttf") format("truetype");
   font-weight: 300 600;
@@ -26,7 +42,7 @@
   --mute: #999;
   --mute-2: #c8c8c4;
   --line: #0a0a0a;
-  --acc: #c8ff1a;       /* 蛍光ライムグリーン */
+  --acc: #ffd400;       /* signal yellow — Gen-EX */
   --acc-ink: #0a0a0a;
   --hatch: rgba(10,10,10,0.08);
   --grid: rgba(10,10,10,0.028);
@@ -35,31 +51,31 @@
   --panel-bg: #ffffff;
   --shadow: 0 0 0 1px var(--ink);
   /* tDR easing: 速く動いてピタッと止まる */
-  --ez: cubic-bezier(0.2, 0, 0, 1);
-  --t-hover: 120ms;
-  --t-click: 240ms;
-  --t-layout: 380ms;
+  --ez: cubic-bezier(0.2, 0, 0, 1); /* @kind other */
+  --t-hover: 120ms; /* @kind other */
+  --t-click: 240ms; /* @kind other */
+  --t-layout: 380ms; /* @kind other */
 
-  --mono: "JetBrains Mono", "IBM Plex Mono", "Space Mono", ui-monospace, monospace;
-  --sans: "Square 721", "Bank Gothic", "Space Grotesk", "Helvetica Neue", system-ui, sans-serif;
-  --display: "Bank Gothic", "Square 721", "Space Grotesk", system-ui, sans-serif;
-  --bauhaus: "Bank Gothic", "Square 721", system-ui, sans-serif;
-  --jp: "IBM Plex Sans JP", "Noto Sans JP", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "IBM Plex Mono", "Space Mono", ui-monospace, monospace; /* @kind font */
+  --sans: "Square 721", "Bank Gothic", "Space Grotesk", "Helvetica Neue", system-ui, sans-serif; /* @kind font */
+  --display: "Bank Gothic", "Square 721", "Space Grotesk", system-ui, sans-serif; /* @kind font */
+  --bauhaus: "Bank Gothic", "Square 721", system-ui, sans-serif; /* @kind font */
+  --jp: "IBM Plex Sans JP", "Noto Sans JP", system-ui, sans-serif; /* @kind font */
 }
 
-[data-theme="dark"] {
-  --bg: #0a0a0a;
-  --bg-2: #141414;
-  --ink: #f2f2ef;
-  --ink-2: #e8e8e4;
-  --mute: #555;
-  --mute-2: #2a2a2a;
-  --line: #f2f2ef;
-  --hatch: rgba(242,242,239,0.08);
-  --grid: rgba(242,242,239,0.03);
-  --grid-major: rgba(242,242,239,0.06);
-  --node-bg: #0a0a0a;
-  --panel-bg: #0a0a0a;
+[data-theme="white"] {
+  --bg: #ffffff;
+  --bg-2: #f4f4f2;
+  --ink: #0a0a0a;
+  --ink-2: #1a1a1a;
+  --mute: #9a9a96;
+  --mute-2: #d8d8d4;
+  --line: #0a0a0a;
+  --hatch: rgba(10,10,10,0.06);
+  --grid: rgba(10,10,10,0.022);
+  --grid-major: rgba(10,10,10,0.04);
+  --node-bg: #ffffff;
+  --panel-bg: #ffffff;
   --shadow: 0 0 0 1px var(--ink);
 }
 
@@ -103,10 +119,13 @@ html, body {
   height: 100%;
 }
 .hd__brand .mark {
-  width: 16px; height: 16px;
-  background: var(--acc);
-  display: inline-block;
+  width: 24px; height: 24px;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
+.hd__brand .mark svg { width: 100%; height: 100%; }
 .hd__brand .name {
   font-family: var(--display);
   font-size: 12px;
@@ -162,8 +181,8 @@ html, body {
   background: var(--ink);
   display: inline-block;
 }
-.hd__tools button.tool-acc { background: var(--acc); color: #0a0a0a; }
-.hd__tools button.tool-acc .dot { background: #0a0a0a; }
+.hd__tools button.tool-acc { background: var(--acc); color: var(--acc-ink); }
+.hd__tools button.tool-acc .dot { background: var(--acc-ink); }
 
 /* ========== SIDEBAR ================================ */
 .sb {
@@ -255,11 +274,11 @@ html, body {
 .cat__meta .n { color: var(--ink); font-weight: 600; font-size: 11px; }
 
 .cat:hover { background: var(--bg-2); }
-.cat.is-active { background: var(--acc); color: #0a0a0a; }
+.cat.is-active { background: var(--acc); color: var(--acc-ink); }
 .cat.is-active .cat__idx,
 .cat.is-active .cat__sub,
-.cat.is-active .cat__meta { color: rgba(10,10,10,0.6); }
-.cat.is-active .cat__meta .n { color: #0a0a0a; }
+.cat.is-active .cat__meta { color: color-mix(in srgb, var(--acc-ink) 60%, transparent); }
+.cat.is-active .cat__meta .n { color: var(--acc-ink); }
 .cat.is-active::after {
   content: "";
   position: absolute;
@@ -369,8 +388,7 @@ html, body {
 .stg__data .d-cross.tr { top: 60px; right: 60px; transform: rotate(90deg); }
 .stg__data .d-cross.bl { bottom: 60px; left: 60px; transform: rotate(-90deg); }
 .stg__data .d-meta { top: 50%; right: 16px; transform: translateY(-50%); writing-mode: vertical-rl; letter-spacing: 0.5em; opacity: 0.4; }
-[data-theme="dark"] .stg__data { color: rgba(10,10,10,0.16); }
-[data-theme="dark"] .stg__plate { background: #ffffff; }
+[data-theme="white"] .stg__plate { background: #ffffff; }
 
 /* decor + grid above plate so they layer over the white */
 .stg__decor { z-index: 4 !important; }
@@ -628,7 +646,7 @@ html, body {
   padding: 0;
   color: var(--ink);
 }
-.node__tog:hover { background: var(--acc); }
+.node__tog:hover { background: var(--acc); color: var(--acc-ink); }
 .node__tog--root { right: -10px; top: -10px; background: var(--acc); }
 .node.is-collapsed { opacity: 0.92; }
 .node.is-collapsed .node__title::after {
@@ -667,7 +685,7 @@ html, body {
 .stg.is-hovering .node.is-related { opacity: 1; }
 .stg.is-hovering .node.is-hovered { opacity: 1; }
 .node.dragging { cursor: grabbing; z-index: 200; }
-.node.dragging .node__title { background: var(--acc); color: #0a0a0a; padding: 2px 6px; }
+.node.dragging .node__title { background: var(--acc); color: var(--acc-ink); padding: 2px 6px; }
 .node.is-selected { z-index: 50; }
 .node.is-selected .node__title {
   background: var(--ink);
@@ -799,7 +817,7 @@ html, body {
 
 .node__title:focus {
   background: var(--acc);
-  color: #0a0a0a;
+  color: var(--acc-ink);
   padding: 0 2px;
   margin: 0 -2px;
 }
@@ -996,7 +1014,7 @@ html, body {
   font-size: 10px;
   display: none;
 }
-[data-theme="dark"] .tw { background: #2a2a2a; }
+[data-theme="white"] .tw { background: #ffffff; }
 .tw.is-open { display: block; }
 .tw__hd {
   display: flex;
@@ -1048,7 +1066,7 @@ html, body {
 }
 .tw__seg button:last-child { border-right: none; }
 .tw__seg button.on { background: var(--ink); color: var(--bg); }
-.tw__seg button.on.acc { background: var(--acc); color: #0a0a0a; }
+.tw__seg button.on.acc { background: var(--acc); color: var(--acc-ink); }
 .tw__sw {
   display: grid;
   grid-template-columns: repeat(5, 1fr);

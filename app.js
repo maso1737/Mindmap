@@ -15,7 +15,6 @@ window.CATEGORIES = [
   { id: "hud",          file: "data/hud.md",          label: "HUD",           sub: "UI / SCI-FI / SPECS",    jp: "" },
   { id: "music-video",  file: "data/music-video.md",  label: "MUSIC · VIDEO", sub: "AE / 3D / REFERENCE",    jp: "" },
   { id: "prepro",       file: "data/prepro.md",       label: "PRE · PROD",    sub: "CONCEPT / STORYBOARD",   jp: "プリプロダクション" },
-  { id: "ae2026",       file: "data/ae2026.md",       label: "AE 2026",       sub: "MOTION / VTuber / 2.5D", jp: "" },
 ];
 const CATEGORIES = window.CATEGORIES;
 window.state = null;
@@ -173,11 +172,11 @@ window.state = {
   theme: "light",
   showCoords: false,
   nodeStyle: "block",
-  accent: "lime",
+  accent: "yellow",
   twPos: { right: 16, bottom: 48 },
 };
 const state = window.state;
-const ACCENTS = { lime: "#c8ff1a", yellow: "#fff700", pink: "#ff3da6", orange: "#ff5a1a", ink: "#0a0a0a" };
+const ACCENTS = { yellow: "#ffd400", lime: "#c8ff1a", pink: "#ff3da6", orange: "#ff5a1a", ink: "#0a0a0a" };
 function getView() {
   if (!state.views[state.active]) state.views[state.active] = { x: 600, y: 400, k: 0.85 };
   return state.views[state.active];
@@ -265,10 +264,10 @@ async function loadAllMaps() {
     // guard: if saved active no longer matches a registered category, fall back
     if (!CATEGORIES.find(c => c.id === state.active)) state.active = "ZBRUSH";
     state.views = stored.views || {};
-    state.theme = stored.theme || "light";
+    state.theme = (stored.theme === "dark" ? "white" : stored.theme) || "light";
     state.showCoords = !!stored.showCoords;
     state.nodeStyle = stored.nodeStyle || "block";
-    state.accent = stored.accent || "lime";
+    state.accent = stored.accent || "yellow";
     state.twPos = stored.twPos || state.twPos;
   }
 }
@@ -400,14 +399,12 @@ function renderStage() {
     const body = el("div", { class: "node__body" });
     const title = el("div", {
       class: "node__title" + (hasJP(n.title) ? " has-jp" : ""),
-      ...(window.READONLY ? {} : { contenteditable: "true" }),
+      contenteditable: "true",
       spellcheck: "false",
     }, n.title || "Untitled");
-    if (!window.READONLY) {
-      title.addEventListener("focus", () => pushHistory());
-      title.addEventListener("blur", () => { n.title = title.textContent.trim(); saveState(); });
-      title.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); title.blur(); } });
-    }
+    title.addEventListener("focus", () => pushHistory());
+    title.addEventListener("blur", () => { n.title = title.textContent.trim(); saveState(); });
+    title.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); title.blur(); } });
     body.appendChild(title);
 
     if (!isMin) {
@@ -417,47 +414,45 @@ function renderStage() {
         const noteText = (n.notes && n.notes[ni]) || "";
         const noteEl = el("div", {
           class: "n" + (noteText ? "" : " is-empty"),
-          ...(window.READONLY ? {} : { contenteditable: "true" }),
+          contenteditable: "true",
           spellcheck: "false",
           "data-placeholder": "+ NOTE",
           "data-note-idx": String(ni),
         }, noteText);
-        if (!window.READONLY) {
-          noteEl.addEventListener("focus", () => { pushHistory(); noteEl.classList.remove("is-empty"); });
-          noteEl.addEventListener("input", () => {
-            const v = noteEl.textContent;
-            if (!n.notes) n.notes = [];
-            n.notes[ni] = v;
-          });
-          noteEl.addEventListener("blur", () => {
-            const v = noteEl.textContent.trim();
-            if (!n.notes) n.notes = [];
-            n.notes[ni] = v;
-            // trim trailing empties
-            while (n.notes.length && !n.notes[n.notes.length - 1]) n.notes.pop();
-            if (!v) noteEl.classList.add("is-empty");
-            saveState();
-          });
-          noteEl.addEventListener("keydown", (ev) => {
-            if (ev.key === "Enter") {
-              ev.preventDefault();
-              // move to next note slot or add new one if room
-              const next = noteEl.parentElement.querySelector(`[data-note-idx="${ni + 1}"]`);
-              if (next) next.focus();
-              else if (ni < 2) {
-                noteEl.blur();
-                renderStage();
-                // focus newly-rendered last note
-                setTimeout(() => {
-                  const dom = $(`.node[data-id="${n.id}"] [data-note-idx="${ni + 1}"]`);
-                  if (dom) dom.focus();
-                }, 0);
-              } else {
-                noteEl.blur();
-              }
+        noteEl.addEventListener("focus", () => { pushHistory(); noteEl.classList.remove("is-empty"); });
+        noteEl.addEventListener("input", () => {
+          const v = noteEl.textContent;
+          if (!n.notes) n.notes = [];
+          n.notes[ni] = v;
+        });
+        noteEl.addEventListener("blur", () => {
+          const v = noteEl.textContent.trim();
+          if (!n.notes) n.notes = [];
+          n.notes[ni] = v;
+          // trim trailing empties
+          while (n.notes.length && !n.notes[n.notes.length - 1]) n.notes.pop();
+          if (!v) noteEl.classList.add("is-empty");
+          saveState();
+        });
+        noteEl.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter") {
+            ev.preventDefault();
+            // move to next note slot or add new one if room
+            const next = noteEl.parentElement.querySelector(`[data-note-idx="${ni + 1}"]`);
+            if (next) next.focus();
+            else if (ni < 2) {
+              noteEl.blur();
+              renderStage();
+              // focus newly-rendered last note
+              setTimeout(() => {
+                const dom = $(`.node[data-id="${n.id}"] [data-note-idx="${ni + 1}"]`);
+                if (dom) dom.focus();
+              }, 0);
+            } else {
+              noteEl.blur();
             }
-          });
-        }
+          }
+        });
         notes.appendChild(noteEl);
       }
       body.appendChild(notes);
@@ -473,15 +468,13 @@ function renderStage() {
     node.appendChild(body);
     node.appendChild(el("div", { class: "node__coord" }, fmtCoord(n.x, n.y)));
 
-    if (!window.READONLY) {
-      const actions = el("div", { class: "node__actions" },
-        el("button", { onclick: (e) => { e.stopPropagation(); editURL(n); } }, "URL"),
-        el("button", { onclick: (e) => { e.stopPropagation(); pickThumb(n); } }, "IMG"),
-        el("button", { onclick: (e) => { e.stopPropagation(); addChild(n); } }, "+ CHILD"),
-        el("button", { class: "del", onclick: (e) => { e.stopPropagation(); delNode(n); } }, "DEL"),
-      );
-      node.appendChild(actions);
-    }
+    const actions = el("div", { class: "node__actions" },
+      el("button", { onclick: (e) => { e.stopPropagation(); editURL(n); } }, "URL"),
+      el("button", { onclick: (e) => { e.stopPropagation(); pickThumb(n); } }, "IMG"),
+      el("button", { onclick: (e) => { e.stopPropagation(); addChild(n); } }, "+ CHILD"),
+      el("button", { class: "del", onclick: (e) => { e.stopPropagation(); delNode(n); } }, "DEL"),
+    );
+    node.appendChild(actions);
 
     attachNodeDrag(node, n);
     node.addEventListener("click", (ev) => {
@@ -655,7 +648,6 @@ function attachStagePanZoom() {
    NODE DRAG
    ========================================================= */
 function attachNodeDrag(elNode, n) {
-  if (window.READONLY) return;
   let dragging = false, started = false, sx = 0, sy = 0, ox = 0, oy = 0;
   elNode.addEventListener("mousedown", (e) => {
     if (e.target.closest(".node__title")) return;
@@ -909,6 +901,8 @@ function applyTheme() {
   document.documentElement.setAttribute("data-theme", state.theme);
   document.documentElement.style.setProperty("--acc", ACCENTS[state.accent] || ACCENTS.lime);
   document.documentElement.style.setProperty("--acc-ink", state.accent === "ink" ? "#ffffff" : "#0a0a0a");
+  // accent color for use ON the dark root slab — falls back to light when accent itself is ink
+  document.documentElement.style.setProperty("--acc-link", state.accent === "ink" ? "#f2f2ef" : (ACCENTS[state.accent] || ACCENTS.lime));
 }
 function renderTweaks() {
   const tw = $(".tw");
@@ -927,7 +921,7 @@ function renderTweaks() {
   attachTwDrag(hd);
 
   const body = el("div", { class: "tw__body" });
-  body.appendChild(makeSeg("THEME", ["light", "dark"], state.theme, v => { state.theme = v; applyTheme(); saveState(); renderTweaks(); }));
+  body.appendChild(makeSeg("THEME", ["light", "white"], state.theme, v => { state.theme = v; applyTheme(); saveState(); renderTweaks(); }));
   body.appendChild(makeSwatch("ACCENT", state.accent, v => { state.accent = v; applyTheme(); saveState(); renderTweaks(); }));
   body.appendChild(makeSeg("COORDS", ["off", "on"], state.showCoords ? "on" : "off", v => { state.showCoords = (v === "on"); saveState(); $(".stg")?.classList.toggle("show-coords", state.showCoords); renderTweaks(); }));
   body.appendChild(makeSeg("NODE", ["block", "minimal"], state.nodeStyle, v => { state.nodeStyle = v; saveState(); renderStage(); renderTweaks(); }));
@@ -1047,6 +1041,61 @@ function download(content, name, type) {
 }
 
 /* =========================================================
+   IMPORT
+   ========================================================= */
+function importJSON() {
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = ".json,application/json";
+  inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    try {
+      const txt = await f.text();
+      const data = JSON.parse(txt);
+      if (!data.trees) { toast("INVALID JSON FORMAT"); return; }
+      pushHistory();
+      // merge imported trees into state, keeping existing cats intact
+      Object.assign(state.trees, data.trees);
+      // recalc meta for all cats
+      CATEGORIES.forEach(cat => {
+        if (state.trees[cat.id]) {
+          state.meta[cat.id] = { count: countNodes(state.trees[cat.id]), depth: maxDepth(state.trees[cat.id]) };
+        }
+      });
+      renderAll();
+      saveState();
+      toast("IMPORTED · JSON");
+    } catch (e) {
+      toast("ERROR · INVALID FILE");
+    }
+  };
+  inp.click();
+}
+
+function importMD() {
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = ".md,.markdown,text/markdown,text/plain";
+  inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    try {
+      const txt = await f.text();
+      pushHistory();
+      const root = parseMarkdown(txt);
+      layoutTree(root);
+      state.trees[state.active] = root;
+      state.meta[state.active] = { count: countNodes(root), depth: maxDepth(root) };
+      // reset view for fresh import
+      state.views[state.active] = { x: 600, y: 400, k: 0.85 };
+      renderAll();
+      saveState();
+      toast("IMPORTED · MARKDOWN");
+    } catch (e) {
+      toast("ERROR · INVALID FILE");
+    }
+  };
+  inp.click();
+}
+
+/* =========================================================
    TOAST
    ========================================================= */
 let toastT;
@@ -1086,6 +1135,8 @@ async function init() {
   });
   $("#btn-export").addEventListener("click", exportJSON);
   $("#btn-export-md").addEventListener("click", exportMD);
+  $("#btn-import").addEventListener("click", importJSON);
+  $("#btn-import-md").addEventListener("click", importMD);
   $("#btn-tweaks").addEventListener("click", () => openTweaks());
 
   $(".zoom .zin").addEventListener("click", () => { const v=getView(); v.k=Math.min(2.5,v.k*1.15); applyTransform(true); saveState(); updateCrumbs(); });

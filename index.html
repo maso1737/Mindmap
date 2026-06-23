@@ -3,12 +3,14 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>MINDMAP · tDR</title>
+<title>GEN-EX · REALTIME EXPRESSION LAB</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<link rel="apple-touch-icon" href="app-icon.svg" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="styles.css?v=14" />
-<link rel="stylesheet" href="extras.css?v=7" />
+<link rel="stylesheet" href="styles.css?v=15" />
+<link rel="stylesheet" href="extras.css?v=8" />
 <template id="__bundler_thumbnail">
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 140">
   <rect width="200" height="140" fill="#f2f2ef"/>
@@ -28,13 +30,15 @@
   <!-- HEADER -->
   <header class="hd">
     <div class="hd__brand">
-      <span class="mark"></span>
-      <span class="name">MIND ⁄ MAP&nbsp;&nbsp;∙&nbsp;&nbsp;v 01.0 — 2026</span>
+      <span class="mark" aria-hidden="true"><svg viewBox="0 0 120 120" width="100%" height="100%" fill="none" xmlns="http://www.w3.org/2000/svg" style="overflow:visible"><g transform="rotate(-9 60 60)"><path d="M 94.67 32.91 A 44 44 0 1 0 94.67 87.09" stroke="currentColor" stroke-width="13" stroke-linecap="round"/><path d="M 94.67 87.09 L 75 78.5" stroke="currentColor" stroke-width="13" stroke-linecap="round"/><rect x="54" y="41" width="11.5" height="28" rx="5.75" fill="currentColor"/><circle cx="42" cy="72" r="8.5" style="fill:var(--acc)"/></g></svg></span>
+      <span class="name">GEN-EX&nbsp;&nbsp;∙&nbsp;&nbsp;v 01.0 — 2026</span>
     </div>
     <div class="hd__crumbs"></div>
     <div class="hd__tools">
       <button id="btn-add" title="Add child to selected node (or root)"><span class="dot"></span>+ NODE</button>
       <button id="btn-fit" title="Fit to view"><span class="dot"></span>FIT</button>
+      <button id="btn-import-md">IMPORT.MD</button>
+      <button id="btn-import">IMPORT.JSON</button>
       <button id="btn-export-md">EXPORT.MD</button>
       <button id="btn-export">EXPORT.JSON</button>
       <button id="btn-tweaks" class="tool-acc"><span class="dot"></span>TWEAKS</button>
@@ -128,17 +132,11 @@
 <!-- TOAST -->
 <div class="toast"></div>
 
-<!-- readonly mode: ?readonly in URL -->
-<script>
-window.READONLY = new URLSearchParams(location.search).has('readonly');
-if (window.READONLY) document.body.classList.add('readonly');
-</script>
-
 <!-- editmode defaults -->
 <script>
 const __TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "theme": "light",
-  "accent": "lime",
+  "accent": "yellow",
   "showCoords": false,
   "nodeStyle": "block"
 }/*EDITMODE-END*/;

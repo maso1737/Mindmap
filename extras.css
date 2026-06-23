@@ -2,23 +2,6 @@
    EXTRAS — styles for sidebar add/reorder, modal, image popup, etc.
    ========================================================= */
 
-/* ---------- 0. Read-only mode ---------- */
-body.readonly #btn-add,
-body.readonly #btn-export-md,
-body.readonly #btn-export,
-body.readonly #btn-tweaks,
-body.readonly .hint,
-body.readonly .sb__add,
-body.readonly .sb__actions { display: none !important; }
-
-body.readonly [contenteditable] {
-  pointer-events: none;
-  cursor: default;
-}
-
-body.readonly .node { cursor: default; }
-body.readonly .node__tog { pointer-events: auto; cursor: pointer; }
-
 /* ---------- 1. Sidebar: add button + reorder controls ---------- */
 .sb__add {
   appearance: none;
@@ -37,13 +20,13 @@ body.readonly .node__tog { pointer-events: auto; cursor: pointer; }
   align-items: center;
   gap: 10px;
 }
-.sb__add:hover { background: var(--acc); color: #0a0a0a; }
+.sb__add:hover { background: var(--acc); color: var(--acc-ink); }
 .sb__add .dot {
   width: 6px; height: 6px;
   background: var(--acc);
   display: inline-block;
 }
-.sb__add:hover .dot { background: #0a0a0a; }
+.sb__add:hover .dot { background: var(--acc-ink); }
 
 .cat { position: relative; }
 .cat__ord {
@@ -80,9 +63,6 @@ body.readonly .node__tog { pointer-events: auto; cursor: pointer; }
 }
 .node:not(.is-root):not(.is-selected) .node__title:focus {
   color: #0a0a0a;
-}
-[data-theme="dark"] .node:not(.is-root):not(.is-selected) .node__title {
-  color: #b8b8b4;
 }
 
 /* ---------- 3. Notes: resizable column ---------- */
@@ -163,7 +143,6 @@ body.readonly .node__tog { pointer-events: auto; cursor: pointer; }
   font-family: var(--mono);
   color: var(--ink);
 }
-[data-theme="dark"] .ex-modal__panel { background: #141414; }
 
 .ex-modal__hd {
   display: flex;
@@ -314,19 +293,12 @@ body.readonly .node__tog { pointer-events: auto; cursor: pointer; }
   color: var(--ink) !important;
   text-shadow: none;
 }
-[data-theme="dark"] .stg .node:not(.is-root) .node__title {
-  background: var(--bg) !important;
-  color: var(--ink);
-}
-[data-theme="dark"] .stg .node.is-selected:not(.is-root) .node__title {
-  background: rgba(255, 255, 255, 0.15) !important;
-}
 
 /* — Title states (per feedback v3):
      editing (focus) = GREEN (acc), moving (drag) = BLACK (ink) */
 .stg .node:not(.is-root) .node__title:focus {
   background: var(--acc) !important;
-  color: #0a0a0a !important;
+  color: var(--acc-ink) !important;
   box-shadow: inset 0 0 0 1px rgba(10,10,10,0.55);
 }
 
@@ -356,7 +328,7 @@ body.readonly .node__tog { pointer-events: auto; cursor: pointer; }
 /* root variants */
 .stg .node.is-root .node__title:focus {
   background: var(--acc) !important;
-  color: #0a0a0a !important;
+  color: var(--acc-ink) !important;
 }
 .stg .node.is-root.dragging .node__title {
   background: var(--ink) !important;
@@ -373,11 +345,11 @@ body.readonly .node__tog { pointer-events: auto; cursor: pointer; }
 }
 .node__url a:hover {
   background: var(--acc);
-  color: var(--ink) !important;
+  color: var(--acc-ink) !important;
   padding: 0 2px;
 }
 .node.is-root .node__url a {
-  color: var(--acc) !important;
+  color: var(--acc-link) !important;
 }
 
 /* — Action bar: ONLY visible on click/select (not hover). Bottom of node. */
@@ -495,7 +467,7 @@ body.readonly .node__tog { pointer-events: auto; cursor: pointer; }
 }
 .stg__hud .hud-readout .k { color: rgba(10,10,10,0.4); }
 .stg__hud .hud-readout .v { color: rgba(10,10,10,0.85); font-weight: 600; }
-.stg__hud .hud-readout .v.acc { color: #0a0a0a; background: var(--acc); padding: 0 4px; }
+.stg__hud .hud-readout .v.acc { color: var(--acc-ink); background: var(--acc); padding: 0 4px; }
 
 /* timecode — top-right of plate */
 .stg__hud .hud-tc {
@@ -567,15 +539,6 @@ body.readonly .node__tog { pointer-events: auto; cursor: pointer; }
 
 /* hide the older .stg__data layer — superseded by .stg__hud */
 .stg__data { display: none; }
-
-[data-theme="dark"] .stg__plate {
-  background:
-    linear-gradient(rgba(10,10,10,0.022) 1px, transparent 1px) 0 0/40px 40px,
-    linear-gradient(90deg, rgba(10,10,10,0.022) 1px, transparent 1px) 0 0/40px 40px,
-    linear-gradient(rgba(10,10,10,0.04) 1px, transparent 1px) 0 0/200px 200px,
-    linear-gradient(90deg, rgba(10,10,10,0.04) 1px, transparent 1px) 0 0/200px 200px,
-    #ffffff !important;
-}
 
 /* =========================================================
    9. READONLY MODE — ?readonly in URL = view-only

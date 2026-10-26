@@ -644,6 +644,7 @@ function fitView(smooth = true) {
   const nodes = $$(".stg__viewport .node");
   if (!stg || !nodes.length) return;
   const stgRect = stg.getBoundingClientRect();
+  if (stgRect.width < 50 || stgRect.height < 50) return; // hidden/zero-size tab: don't save a bogus 25% view
   const v = getView();
   const bounds = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
   nodes.forEach(node => {

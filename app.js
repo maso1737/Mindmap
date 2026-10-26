@@ -173,6 +173,7 @@ window.state = {
   showCoords: false,
   nodeStyle: "block",
   accent: "yellow",
+  snap: true,
   twPos: { right: 16, bottom: 48 },
 };
 const state = window.state;
@@ -185,12 +186,53 @@ function getView() {
 /* =========================================================
    PERSIST
    ========================================================= */
+let saveFailureToastAt = 0;
+function setSaveStatus(ok, key, err) {
+  const at = Date.now();
+  const name = String((err && err.name) || err || "ERROR");
+  window.__mindmapSaveStatus = ok ? { ok: true, at } : { ok: false, at, key, error: name };
+
+  const tools = $(".hd__tools");
+  let badge = $(".save-error-badge");
+  if (!badge && tools) {
+    badge = el("div", { class: "save-error-badge", role: "status" });
+    tools.appendChild(badge);
+  }
+  if (badge) {
+    badge.textContent = ok ? "" : "SAVE ERROR · " + name;
+    badge.hidden = ok;
+  }
+  const saved = $(".foot > div:nth-child(4)");
+  if (saved) saved.hidden = !ok;
+
+  if (ok) {
+    saveFailureToastAt = 0;
+  } else if (at - saveFailureToastAt >= 5000) {
+    saveFailureToastAt = at;
+    toast("SAVE FAILED · " + name);
+  }
+}
+function safeSetItem(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    setSaveStatus(true);
+    return true;
+  } catch (err) {
+    setSaveStatus(false, key, err);
+    return false;
+  }
+}
 function saveState() {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify({
-    trees: state.trees, views: state.views, active: state.active,
-    theme: state.theme, showCoords: state.showCoords, nodeStyle: state.nodeStyle, accent: state.accent,
-    twPos: state.twPos,
-  })); } catch {}
+  try {
+    return safeSetItem(STORE_KEY, JSON.stringify({
+      trees: state.trees, views: state.views, active: state.active,
+      theme: state.theme, showCoords: state.showCoords, nodeStyle: state.nodeStyle, accent: state.accent,
+      snap: state.snap, twPos: state.twPos,
+    }));
+  } catch (err) {
+    setSaveStatus(false, STORE_KEY, err);
+    return false;
+  }
 }
 function loadStateRaw() { try { const r = localStorage.getItem(STORE_KEY); return r ? JSON.parse(r) : null; } catch { return null; } }
 
@@ -268,6 +310,7 @@ async function loadAllMaps() {
     state.showCoords = !!stored.showCoords;
     state.nodeStyle = stored.nodeStyle || "block";
     state.accent = stored.accent || "yellow";
+    state.snap = stored.snap !== false;
     state.twPos = stored.twPos || state.twPos;
   }
 }
@@ -476,7 +519,6 @@ function renderStage() {
     );
     node.appendChild(actions);
 
-    attachNodeDrag(node, n);
     node.addEventListener("click", (ev) => {
       if (ev.target.closest(".node__title")) return;
       if (ev.target.closest(".node__notes")) return;
@@ -597,10 +639,144 @@ function applyTransform(smooth) {
   const lvl = $(".zoom .lvl");
   if (lvl) lvl.textContent = Math.round(v.k * 100) + "%";
 }
+function fitView(smooth = true) {
+  const stg = $(".stg");
+  const nodes = $$(".stg__viewport .node");
+  if (!stg || !nodes.length) return;
+  const stgRect = stg.getBoundingClientRect();
+  const v = getView();
+  const bounds = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
+  nodes.forEach(node => {
+    const r = node.getBoundingClientRect();
+    bounds.left = Math.min(bounds.left, (r.left - stgRect.left - v.x) / v.k);
+    bounds.top = Math.min(bounds.top, (r.top - stgRect.top - v.y) / v.k);
+    bounds.right = Math.max(bounds.right, (r.right - stgRect.left - v.x) / v.k);
+    bounds.bottom = Math.max(bounds.bottom, (r.bottom - stgRect.top - v.y) / v.k);
+  });
+  const boundsW = Math.max(1, bounds.right - bounds.left);
+  const boundsH = Math.max(1, bounds.bottom - bounds.top);
+  const availW = Math.max(1, stgRect.width - 96);
+  const availH = Math.max(1, stgRect.height - 96);
+  const fitK = Math.min(availW / boundsW, availH / boundsH);
+  v.k = Math.min(1, Math.max(0.25, fitK));
+  v.x = stgRect.width / 2 - ((bounds.left + bounds.right) / 2) * v.k;
+  v.y = stgRect.height / 2 - ((bounds.top + bounds.bottom) / 2) * v.k;
+  applyTransform(smooth);
+  saveState();
+  updateCrumbs();
+  if (boundsW * v.k > availW + 0.5 || boundsH * v.k > availH + 0.5) toast("FIT · MIN ZOOM LIMIT");
+}
+
+const dragState = { kind: null };
+function capturePointer(target, e) {
+  dragState.captureEl = target;
+  dragState.pointerId = e.pointerId;
+  try { target.setPointerCapture(e.pointerId); } catch {}
+}
+function clearDropTarget() {
+  $$(".node.drop-target").forEach(x => x.classList.remove("drop-target"));
+}
+function resetDragState() {
+  const captureEl = dragState.captureEl;
+  const pointerId = dragState.pointerId;
+  Object.keys(dragState).forEach(k => delete dragState[k]);
+  dragState.kind = null;
+  if (captureEl && pointerId != null) {
+    try { captureEl.releasePointerCapture(pointerId); } catch {}
+  }
+}
+function moveActiveDrag(e) {
+  if (!dragState.kind) return;
+  if (dragState.pointerId != null && e.pointerId != null && e.pointerId !== dragState.pointerId) return;
+  if (dragState.kind === "pan") {
+    const v = getView();
+    v.x = dragState.ox + (e.clientX - dragState.sx);
+    v.y = dragState.oy + (e.clientY - dragState.sy);
+    applyTransform();
+    return;
+  }
+  if (dragState.kind !== "node") return;
+  const dxScreen = e.clientX - dragState.sx;
+  const dyScreen = e.clientY - dragState.sy;
+  if (!dragState.started && Math.hypot(dxScreen, dyScreen) < 4) return;
+  if (!dragState.started) {
+    dragState.started = true;
+    dragState.future = history.future.slice();
+    pushHistory();
+    dragState.el.classList.add("dragging");
+  }
+  const k = getView().k;
+  dragState.node.x = Math.round(dragState.ox + dxScreen / k);
+  dragState.node.y = Math.round(dragState.oy + dyScreen / k);
+  dragState.el.style.left = dragState.node.x + "px";
+  dragState.el.style.top = dragState.node.y + "px";
+  const cd = dragState.el.querySelector(".node__coord");
+  if (cd) cd.textContent = fmtCoord(dragState.node.x, dragState.node.y);
+  updateEdgesForNode(dragState.node);
+  dragState.lastX = e.clientX;
+  dragState.lastY = e.clientY;
+  dragState.lastAlt = e.altKey;
+  dragState.lastShift = e.shiftKey;
+  clearDropTarget();
+  if (e.shiftKey) {
+    const target = pickNodeAt(e.clientX, e.clientY, dragState.node);
+    if (target) target.dom.classList.add("drop-target");
+  }
+}
+function endActiveDrag(e, reason = "release") {
+  if (!dragState.kind) return;
+  const kind = dragState.kind;
+  if (kind === "pan") {
+    const v = getView();
+    if (reason === "escape") { v.x = dragState.ox; v.y = dragState.oy; applyTransform(); }
+    $(".stg")?.classList.remove("is-panning");
+    resetDragState();
+    if (reason !== "escape") saveState();
+    return;
+  }
+  if (kind === "tweak") {
+    const tw = $(".tw");
+    resetDragState();
+    if (tw) {
+      const r = tw.getBoundingClientRect();
+      state.twPos = { left: r.left, top: r.top };
+      saveState();
+    }
+    return;
+  }
+  const { node, el: nodeEl, ox, oy, started, future } = dragState;
+  const restore = reason === "escape" || reason === "cancel";
+  const allowReparent = reason === "release" && !!(e && e.shiftKey);
+  if (started && restore) {
+    node.x = ox;
+    node.y = oy;
+    history.past.pop();
+    history.future = future;
+  } else if (started) {
+    const free = e ? e.altKey : dragState.lastAlt;
+    if (state.snap !== false && !free) {
+      node.x = Math.round(node.x / 10) * 10;
+      node.y = Math.round(node.y / 10) * 10;
+    }
+  }
+  if (started) {
+    nodeEl.style.left = node.x + "px";
+    nodeEl.style.top = node.y + "px";
+    const cd = nodeEl.querySelector(".node__coord");
+    if (cd) cd.textContent = fmtCoord(node.x, node.y);
+    updateEdgesForNode(node);
+  }
+  nodeEl.classList.remove("dragging");
+  clearDropTarget();
+  const cx = e ? e.clientX : dragState.lastX;
+  const cy = e ? e.clientY : dragState.lastY;
+  const target = started && allowReparent ? pickNodeAt(cx, cy, node) : null;
+  resetDragState();
+  if (target && target.node !== node) reparent(node, target.node);
+  else if (started && !restore) saveState();
+}
 function attachStagePanZoom() {
   const stg = $(".stg");
-  let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
-
   function startPan(e) {
     // allow pan from anywhere on the stage that's NOT a node, button, panel
     if (e.target.closest(".node")) return;
@@ -609,24 +785,26 @@ function attachStagePanZoom() {
     if (e.target.closest(".hint")) return;
     if (e.target.closest(".stg__axis")) return;
     if (e.button !== 0) return;
-    dragging = true; sx = e.clientX; sy = e.clientY;
-    const v = getView(); ox = v.x; oy = v.y;
+    const v = getView();
+    Object.assign(dragState, { kind: "pan", sx: e.clientX, sy: e.clientY, ox: v.x, oy: v.y });
+    capturePointer(stg, e);
     stg.classList.add("is-panning");
     state.selected = null;
     $$(".node.is-selected").forEach(el => el.classList.remove("is-selected"));
   }
-  stg.addEventListener("mousedown", startPan);
-  window.addEventListener("mousemove", (e) => {
-    if (!dragging) return;
-    const v = getView();
-    v.x = ox + (e.clientX - sx);
-    v.y = oy + (e.clientY - sy);
-    applyTransform();
-  });
-  window.addEventListener("mouseup", () => {
-    if (dragging) { dragging = false; stg.classList.remove("is-panning"); saveState(); }
-  });
+  stg.addEventListener("pointerdown", startPan);
+  stg.addEventListener("pointermove", moveActiveDrag);
+  stg.addEventListener("pointerup", e => endActiveDrag(e));
+  stg.addEventListener("pointercancel", e => endActiveDrag(e, dragState.kind === "node" ? "cancel" : "release"));
+  stg.addEventListener("lostpointercapture", e => endActiveDrag(e, "lost"));
 
+  // Synthetic pointer events cannot acquire capture; keep one non-render fallback for probes.
+  window.addEventListener("pointermove", e => { if (e.target === window || e.target === document) moveActiveDrag(e); });
+  window.addEventListener("pointerup", e => { if (e.target === window || e.target === document) endActiveDrag(e); });
+  window.addEventListener("pointercancel", e => { if (e.target === window || e.target === document) endActiveDrag(e, dragState.kind === "node" ? "cancel" : "release"); });
+  window.addEventListener("blur", () => endActiveDrag(null, "blur"));
+
+  let wheelSaveT;
   stg.addEventListener("wheel", (e) => {
     e.preventDefault();
     const v = getView();
@@ -640,58 +818,34 @@ function attachStagePanZoom() {
     v.x = cx - dx * newK;
     v.y = cy - dy * newK;
     applyTransform();
-    saveState();
+    clearTimeout(wheelSaveT);
+    wheelSaveT = setTimeout(saveState, 250);
   }, { passive: false });
 }
 
 /* =========================================================
    NODE DRAG
    ========================================================= */
-function attachNodeDrag(elNode, n) {
-  let dragging = false, started = false, sx = 0, sy = 0, ox = 0, oy = 0;
-  elNode.addEventListener("mousedown", (e) => {
+function attachNodeDrag() {
+  const vp = $(".stg__viewport");
+  vp.addEventListener("pointerdown", (e) => {
+    const elNode = e.target.closest(".node");
+    if (!elNode || !vp.contains(elNode)) return;
     if (e.target.closest(".node__title")) return;
     if (e.target.closest(".node__notes")) return;
     if (e.target.closest(".node__url a")) return;
     if (e.target.closest(".node__actions")) return;
     if (e.target.closest(".node__tog")) return;
     if (e.button !== 0) return;
-    dragging = true; started = false;
-    sx = e.clientX; sy = e.clientY;
-    ox = n.x; oy = n.y;
+    const n = findNodeById(state.trees[state.active], elNode.dataset.id);
+    if (!n) return;
+    Object.assign(dragState, {
+      kind: "node", node: n, el: elNode, started: false,
+      sx: e.clientX, sy: e.clientY, ox: n.x, oy: n.y,
+      lastX: e.clientX, lastY: e.clientY, lastAlt: false, lastShift: false,
+    });
+    capturePointer(elNode, e);
     e.stopPropagation();
-  });
-  window.addEventListener("mousemove", (e) => {
-    if (!dragging) return;
-    const k = getView().k;
-    const dx = (e.clientX - sx) / k;
-    const dy = (e.clientY - sy) / k;
-    if (!started && Math.hypot(dx, dy) < 3) return;
-    if (!started) { started = true; pushHistory(); elNode.classList.add("dragging"); }
-    n.x = Math.round((ox + dx) / 10) * 10;
-    n.y = Math.round((oy + dy) / 10) * 10;
-    elNode.style.left = n.x + "px";
-    elNode.style.top = n.y + "px";
-    const cd = elNode.querySelector(".node__coord"); if (cd) cd.textContent = fmtCoord(n.x, n.y);
-    updateEdgesForNode(n);
-    if (e.shiftKey) {
-      const target = pickNodeAt(e.clientX, e.clientY, n);
-      $$(".node.drop-target").forEach(x => x.classList.remove("drop-target"));
-      if (target) target.dom.classList.add("drop-target");
-    }
-  });
-  window.addEventListener("mouseup", (e) => {
-    if (!dragging) return;
-    if (started && e.shiftKey) {
-      const target = pickNodeAt(e.clientX, e.clientY, n);
-      if (target && target.node !== n) reparent(n, target.node);
-    }
-    dragging = false;
-    if (started) {
-      elNode.classList.remove("dragging");
-      $$(".node.drop-target").forEach(x => x.classList.remove("drop-target"));
-      saveState();
-    }
   });
 }
 function pickNodeAt(cx, cy, exclude) {
@@ -925,6 +1079,7 @@ function renderTweaks() {
   body.appendChild(makeSwatch("ACCENT", state.accent, v => { state.accent = v; applyTheme(); saveState(); renderTweaks(); }));
   body.appendChild(makeSeg("COORDS", ["off", "on"], state.showCoords ? "on" : "off", v => { state.showCoords = (v === "on"); saveState(); $(".stg")?.classList.toggle("show-coords", state.showCoords); renderTweaks(); }));
   body.appendChild(makeSeg("NODE", ["block", "minimal"], state.nodeStyle, v => { state.nodeStyle = v; saveState(); renderStage(); renderTweaks(); }));
+  body.appendChild(makeSeg("SNAP 10 · ALT = FREE", ["on", "off"], state.snap === false ? "off" : "on", v => { state.snap = (v === "on"); saveState(); renderTweaks(); }));
 
   // full reset (with confirm)
   const resetAllBtn = el("button", {
@@ -948,34 +1103,34 @@ function renderTweaks() {
   tw.appendChild(body);
 }
 function attachTwDrag(handle) {
-  let dragging = false, sx = 0, sy = 0, ol = 0, ot = 0;
   handle.style.cursor = "move";
-  handle.addEventListener("mousedown", (e) => {
+  handle.style.touchAction = "none";
+  handle.addEventListener("pointerdown", (e) => {
     if (e.target.closest(".x")) return;
+    if (e.button !== 0) return;
     const tw = $(".tw");
     const r = tw.getBoundingClientRect();
-    dragging = true; sx = e.clientX; sy = e.clientY;
-    ol = r.left; ot = r.top;
+    Object.assign(dragState, {
+      kind: "tweak", sx: e.clientX, sy: e.clientY,
+      ox: r.left, oy: r.top,
+    });
+    capturePointer(handle, e);
     e.preventDefault();
   });
-  window.addEventListener("mousemove", (e) => {
-    if (!dragging) return;
+  handle.addEventListener("pointermove", (e) => {
+    if (dragState.kind !== "tweak") return;
+    if (dragState.pointerId != null && e.pointerId !== dragState.pointerId) return;
     const tw = $(".tw");
-    const nx = ol + (e.clientX - sx);
-    const ny = ot + (e.clientY - sy);
+    const nx = dragState.ox + (e.clientX - dragState.sx);
+    const ny = dragState.oy + (e.clientY - dragState.sy);
     tw.style.left = Math.max(8, Math.min(window.innerWidth - 100, nx)) + "px";
     tw.style.right = "auto";
     tw.style.top = Math.max(8, Math.min(window.innerHeight - 60, ny)) + "px";
     tw.style.bottom = "auto";
   });
-  window.addEventListener("mouseup", () => {
-    if (!dragging) return;
-    dragging = false;
-    const tw = $(".tw");
-    const r = tw.getBoundingClientRect();
-    state.twPos = { left: r.left, top: r.top };
-    saveState();
-  });
+  handle.addEventListener("pointerup", e => endActiveDrag(e));
+  handle.addEventListener("pointercancel", e => endActiveDrag(e, "cancel"));
+  handle.addEventListener("lostpointercapture", e => endActiveDrag(e, "lost"));
 }
 function makeSeg(label, opts, current, onPick) {
   const row = el("div", { class: "tw__row" });
@@ -1111,28 +1266,26 @@ function toast(msg) {
    INIT
    ========================================================= */
 function renderAll() {
+  const shouldFit = !state.views[state.active];
   applyTheme();
   renderSidebar();
   renderStage();
-  updateCrumbs();
-  saveState();
+  if (shouldFit) fitView(false);
+  else { updateCrumbs(); saveState(); }
 }
 
 async function init() {
   await loadAllMaps();
   renderAll();
   attachStagePanZoom();
+  attachNodeDrag();
 
   $("#btn-add").addEventListener("click", () => {
     const root = state.trees[state.active];
     const parent = state.selected ? findNodeById(root, state.selected) : root;
     addChild(parent || root);
   });
-  $("#btn-fit").addEventListener("click", () => {
-    const v = getView();
-    v.x = window.innerWidth / 2 - 140; v.y = window.innerHeight / 2 - 80; v.k = 0.7;
-    applyTransform(true); saveState();
-  });
+  $("#btn-fit").addEventListener("click", () => fitView());
   $("#btn-export").addEventListener("click", exportJSON);
   $("#btn-export-md").addEventListener("click", exportMD);
   $("#btn-import").addEventListener("click", importJSON);
@@ -1141,20 +1294,16 @@ async function init() {
 
   $(".zoom .zin").addEventListener("click", () => { const v=getView(); v.k=Math.min(2.5,v.k*1.15); applyTransform(true); saveState(); updateCrumbs(); });
   $(".zoom .zout").addEventListener("click", () => { const v=getView(); v.k=Math.max(0.25,v.k/1.15); applyTransform(true); saveState(); updateCrumbs(); });
-  $(".zoom .zfit").addEventListener("click", () => $("#btn-fit").click());
-
-  // initial center
-  const stg = $(".stg");
-  const v0 = getView();
-  if (v0.x === 600 && v0.y === 400) { v0.x = stg.clientWidth / 2 - 140; v0.y = stg.clientHeight / 2 - 60; }
-  applyTransform();
+  $(".zoom .zfit").addEventListener("click", () => fitView());
 
   // keyboard shortcuts
   window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && dragState.kind) { e.preventDefault(); endActiveDrag(e, "escape"); return; }
     if (e.target && (e.target.isContentEditable || /input|textarea/i.test(e.target.tagName))) return;
     const meta = e.ctrlKey || e.metaKey;
     if (meta && !e.shiftKey && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); }
     else if (meta && (e.shiftKey && e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) { e.preventDefault(); redo(); }
+    else if (!meta && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); fitView(); }
   });
 
   // edit mode protocol
@@ -1177,6 +1326,8 @@ window.updateCrumbs = updateCrumbs;
 window.applyTransform = applyTransform;
 window.pushHistory = pushHistory;
 window.saveState = saveState;
+window.safeSetItem = safeSetItem;
 window.toast = toast;
 window.findNodeById = findNodeById;
 window.getView = getView;
+window.fitView = fitView;

@@ -183,6 +183,19 @@ html, body {
 }
 .hd__tools button.tool-acc { background: var(--acc); color: var(--acc-ink); }
 .hd__tools button.tool-acc .dot { background: var(--acc-ink); }
+.save-error-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  background: #e64141;
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+.save-error-badge[hidden] { display: none; }
 
 /* ========== SIDEBAR ================================ */
 .sb {
@@ -307,6 +320,7 @@ html, body {
 .stg {
   position: relative;
   overflow: hidden;
+  touch-action: none;
   background:
     /* major grid (every 200px) */
     linear-gradient(var(--grid-major) 1px, transparent 1px) 0 0/200px 200px,
@@ -993,6 +1007,7 @@ html, body {
   gap: 8px;
 }
 .foot > *:last-child { border-right: none; }
+.foot > [hidden] { display: none; }
 .foot .v { color: var(--ink); }
 .foot .blink {
   width: 6px; height: 6px;

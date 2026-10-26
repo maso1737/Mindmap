@@ -115,10 +115,10 @@
 
   function persistCustoms() {
     const customs = window.CATEGORIES.filter(c => c.custom);
-    try { localStorage.setItem(CUSTOM_CATS_KEY, JSON.stringify(customs)); } catch {}
+    window.safeSetItem(CUSTOM_CATS_KEY, JSON.stringify(customs));
   }
   function persistOrder() {
-    try { localStorage.setItem(CAT_ORDER_KEY, JSON.stringify(window.CATEGORIES.map(c => c.id))); } catch {}
+    window.safeSetItem(CAT_ORDER_KEY, JSON.stringify(window.CATEGORIES.map(c => c.id)));
   }
 
   async function addCategoryFlow() {
@@ -381,7 +381,7 @@
      ===================================================== */
   const DEFAULT_LAYOUTS_KEY = "tdr-mindmap-default-layouts-v1";
   function loadLayouts() { try { return JSON.parse(localStorage.getItem(DEFAULT_LAYOUTS_KEY) || "{}"); } catch { return {}; } }
-  function saveLayouts(l) { try { localStorage.setItem(DEFAULT_LAYOUTS_KEY, JSON.stringify(l)); } catch {} }
+  function saveLayouts(l) { return window.safeSetItem(DEFAULT_LAYOUTS_KEY, JSON.stringify(l)); }
 
   function snapshotLayout(tree) {
     const m = {};
@@ -408,8 +408,7 @@
     const view = window.state.views && window.state.views[cat];
     const layouts = loadLayouts();
     layouts[cat] = { layout: snapshotLayout(tree), view: view ? { ...view } : null, ts: Date.now() };
-    saveLayouts(layouts);
-    window.toast && window.toast("LAYOUT · SAVED · DEFAULT");
+    if (saveLayouts(layouts)) window.toast && window.toast("LAYOUT · SAVED · DEFAULT");
   }
   async function restoreDefault() {
     if (!window.state) return;
@@ -694,18 +693,8 @@
     }
   }
 
-  // Hook into toggleCollapse: after animation completes, relax
+  // Kept for a later explicit TIDY action; collapse/expand must preserve manual coordinates.
   function wireRelax() {
-    const stg = $(".stg");
-    if (!stg || stg.__exRelaxWired) return;
-    stg.__exRelaxWired = true;
-    stg.addEventListener("click", (e) => {
-      if (!e.target.closest(".node__tog")) return;
-      // Wait for animation to finish: stagger is 30 + i*24ms + 260ms transition
-      // Be safe: fire at 500ms and again at 900ms for cascading pushes
-      setTimeout(relaxLoop, 500);
-      setTimeout(relaxLoop, 900);
-    }, true);
     window.relaxOverlaps = relaxLoop;
   }
 

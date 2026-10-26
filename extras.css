@@ -324,6 +324,9 @@
   background: var(--ink) !important;
   color: var(--bg) !important;
   padding: 2px 6px !important;
+  /* cancel the padding so the card keeps its size — it is centre-anchored, so growth shifts it off the cursor */
+  margin: -2px -6px !important;
+  transition: none !important;
 }
 /* root variants */
 .stg .node.is-root .node__title:focus {

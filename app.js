@@ -167,13 +167,16 @@ window.state = {
   trees: {},
   meta: {},
   views: {},          // { catId: {x,y,k} }
+  layoutMode: {},     // { catId: "tree" | "free" }
   active: "ZBRUSH",
   selected: null,
   theme: "light",
   showCoords: false,
   nodeStyle: "block",
+  density: "auto",
   accent: "yellow",
   snap: true,
+  inspector: true,
   twPos: { right: 16, bottom: 48 },
 };
 const state = window.state;
@@ -181,6 +184,15 @@ const ACCENTS = { yellow: "#ffd400", lime: "#c8ff1a", pink: "#ff3da6", orange: "
 function getView() {
   if (!state.views[state.active]) state.views[state.active] = { x: 600, y: 400, k: 0.85 };
   return state.views[state.active];
+}
+
+const treePos = new Map();
+const TREE_GAP_X = 64;
+const TREE_GAP_Y = 16;
+function isTreeMode() { return state.layoutMode[state.active] === "tree"; }
+function posOf(n) {
+  if (isTreeMode()) return treePos.get(n.id) || { x: n.x, y: n.y };
+  return { x: n.x, y: n.y };
 }
 
 /* =========================================================
@@ -225,9 +237,9 @@ function safeSetItem(key, value) {
 function saveState() {
   try {
     return safeSetItem(STORE_KEY, JSON.stringify({
-      trees: state.trees, views: state.views, active: state.active,
+      trees: state.trees, views: state.views, active: state.active, layoutMode: state.layoutMode,
       theme: state.theme, showCoords: state.showCoords, nodeStyle: state.nodeStyle, accent: state.accent,
-      snap: state.snap, twPos: state.twPos,
+      snap: state.snap, inspector: state.inspector, density: state.density, twPos: state.twPos,
     }));
   } catch (err) {
     setSaveStatus(false, STORE_KEY, err);
@@ -241,6 +253,12 @@ function loadStateRaw() { try { const r = localStorage.getItem(STORE_KEY); retur
    ========================================================= */
 const history = { past: [], future: [] };
 const HIST_MAX = 60;
+let editSession = null;
+let inspectorEdit = null;
+let inspectorRenderedId = null;
+let inspectorCancelBlur = false;
+let inspectorRenderingLocked = false;
+const editNoteSlots = new Map();
 function snapshot() {
   return JSON.stringify({ trees: state.trees, views: state.views });
 }
@@ -253,6 +271,96 @@ function pushHistory() {
   history.past.push(snapshot());
   if (history.past.length > HIST_MAX) history.past.shift();
   history.future.length = 0;
+}
+function selectNode(n) {
+  state.selected = n.id;
+  $$(".node.is-selected").forEach(x => x.classList.remove("is-selected"));
+  const node = $(`.node[data-id="${n.id}"]`);
+  if (node) node.classList.add("is-selected");
+  markSelectedEdges(n);
+  updateCrumbs();
+  renderInspector();
+}
+function commitEdit() {
+  const edit = editSession;
+  if (!edit) return;
+  editSession = null;
+  const { id, field, noteIdx, before, snap, el: target } = edit;
+  const n = findNodeById(state.trees[state.active], id);
+  const value = target.textContent.trim();
+  if (n) {
+    if (field === "title") n.title = value;
+    else {
+      if (!n.notes) n.notes = [];
+      n.notes[noteIdx] = value;
+      while (n.notes.length && !n.notes[n.notes.length - 1]) n.notes.pop();
+      target.classList.toggle("is-empty", !value);
+    }
+  }
+  editNoteSlots.delete(id);
+  target.setAttribute("contenteditable", "false");
+  target.closest(".node")?.classList.remove("is-editing");
+  if (value !== before) {
+    history.past.push(snap);
+    if (history.past.length > HIST_MAX) history.past.shift();
+    history.future.length = 0;
+  }
+  saveState();
+  if (isTreeMode()) renderStage();
+  renderInspector();
+}
+function cancelEdit() {
+  const edit = editSession;
+  if (!edit) return;
+  editSession = null;
+  const { id, field, noteIdx, before, el: target } = edit;
+  const n = findNodeById(state.trees[state.active], id);
+  if (n) {
+    if (field === "title") n.title = before;
+    else {
+      if (!n.notes) n.notes = [];
+      n.notes[noteIdx] = before;
+      while (n.notes.length && !n.notes[n.notes.length - 1]) n.notes.pop();
+      target.classList.toggle("is-empty", !before);
+    }
+  }
+  editNoteSlots.delete(id);
+  target.textContent = before;
+  target.setAttribute("contenteditable", "false");
+  target.closest(".node")?.classList.remove("is-editing");
+  target.blur();
+  if (n) selectNode(n);
+  saveState();
+  if (isTreeMode()) renderStage();
+}
+function beginEdit(nodeId, field = "title", noteIdx = 0) {
+  if (document.body.classList.contains("is-readonly")) return false;
+  const n = findNodeById(state.trees[state.active], nodeId);
+  if (!n) return false;
+  if (editSession) commitEdit();
+  let target = field === "title"
+    ? $(`.node[data-id="${nodeId}"] .node__title`)
+    : $(`.node[data-id="${nodeId}"] [data-note-idx="${noteIdx}"]`);
+  if (!target && field === "note" && noteIdx < 3) {
+    editNoteSlots.set(nodeId, noteIdx + 1);
+    renderStage();
+    target = $(`.node[data-id="${nodeId}"] [data-note-idx="${noteIdx}"]`);
+  }
+  if (!target) return false;
+  selectNode(n);
+  const before = field === "title" ? n.title : ((n.notes && n.notes[noteIdx]) || "");
+  editSession = { id: nodeId, field, noteIdx, before, snap: snapshot(), el: target };
+  target.setAttribute("contenteditable", "true");
+  target.closest(".node")?.classList.add("is-editing");
+  target.classList.remove("is-empty");
+  target.focus();
+  const range = document.createRange();
+  range.selectNodeContents(target);
+  if (field === "note") range.collapse(false);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  return true;
 }
 function undo() {
   if (!history.past.length) return;
@@ -306,11 +414,14 @@ async function loadAllMaps() {
     // guard: if saved active no longer matches a registered category, fall back
     if (!CATEGORIES.find(c => c.id === state.active)) state.active = "ZBRUSH";
     state.views = stored.views || {};
+    state.layoutMode = stored.layoutMode || {};
     state.theme = (stored.theme === "dark" ? "white" : stored.theme) || "light";
     state.showCoords = !!stored.showCoords;
     state.nodeStyle = stored.nodeStyle || "block";
+    state.density = stored.density === "detail" ? "detail" : "auto";
     state.accent = stored.accent || "yellow";
     state.snap = stored.snap !== false;
+    state.inspector = stored.inspector !== false;
     state.twPos = stored.twPos || state.twPos;
   }
 }
@@ -356,12 +467,152 @@ function makeFootRow(k, v) {
 /* =========================================================
    STAGE
    ========================================================= */
+function updateLayoutControls() {
+  const tree = isTreeMode();
+  $("#btn-tree")?.classList.toggle("is-on", tree);
+  $("#btn-free")?.classList.toggle("is-on", !tree);
+  const bake = $("#btn-tree-bake");
+  if (bake) bake.hidden = !tree;
+}
+function updateAllEdges() {
+  const root = state.trees[state.active];
+  const svg = $(".stg__viewport .edges");
+  if (!root || !svg) return;
+  $$("path[data-edge-from][data-edge-to]", svg).forEach(path => {
+    const a = findNodeById(root, path.getAttribute("data-edge-from"));
+    const b = findNodeById(root, path.getAttribute("data-edge-to"));
+    if (!a || !b) return;
+    const from = posOf(a), to = posOf(b);
+    const midX = (from.x + to.x) / 2;
+    path.setAttribute("d", `M ${from.x} ${from.y} L ${midX} ${from.y} L ${midX} ${to.y} L ${to.x} ${to.y}`);
+  });
+}
+function recomputeTreeLayout() {
+  if (!isTreeMode()) return;
+  const root = state.trees[state.active];
+  const cards = $$(".stg__viewport .node");
+  if (!root || !cards.length) return;
+  const k = getView().k || 1;
+  const sizes = new Map();
+  cards.forEach(card => {
+    const rect = card.getBoundingClientRect();
+    sizes.set(card.dataset.id, { width: rect.width / k, height: rect.height / k });
+  });
+
+  function makeBlock(n) {
+    const own = sizes.get(n.id) || { width: 0, height: 0 };
+    const kids = n._open === false ? [] : (n.children || []).filter(child => sizes.has(child.id));
+    if (!kids.length) {
+      return {
+        points: [{ n, depth: 0, y: 0 }],
+        top: new Map([[0, -own.height / 2]]),
+        bottom: new Map([[0, own.height / 2]]),
+      };
+    }
+
+    const points = [];
+    const top = new Map();
+    const bottom = new Map();
+    const childRoots = [];
+    kids.forEach((child, index) => {
+      const block = makeBlock(child);
+      let shift = 0;
+      if (index) {
+        block.top.forEach((edge, depth) => {
+          const prior = bottom.get(depth + 1);
+          if (prior != null) shift = Math.max(shift, prior + TREE_GAP_Y - edge);
+        });
+      }
+      childRoots.push(shift);
+      block.points.forEach(point => points.push({ n: point.n, depth: point.depth + 1, y: point.y + shift }));
+      block.top.forEach((edge, depth) => {
+        const d = depth + 1;
+        top.set(d, Math.min(top.get(d) ?? Infinity, edge + shift));
+      });
+      block.bottom.forEach((edge, depth) => {
+        const d = depth + 1;
+        bottom.set(d, Math.max(bottom.get(d) ?? -Infinity, edge + shift));
+      });
+    });
+    const parentY = (childRoots[0] + childRoots[childRoots.length - 1]) / 2;
+    points.push({ n, depth: 0, y: parentY });
+    top.set(0, parentY - own.height / 2);
+    bottom.set(0, parentY + own.height / 2);
+    points.forEach(point => { point.y -= parentY; });
+    top.forEach((edge, depth) => top.set(depth, edge - parentY));
+    bottom.forEach((edge, depth) => bottom.set(depth, edge - parentY));
+    return { points, top, bottom };
+  }
+
+  const block = makeBlock(root);
+  const widths = [];
+  let top = Infinity, bottom = -Infinity;
+  block.points.forEach(point => {
+    const size = sizes.get(point.n.id);
+    widths[point.depth] = Math.max(widths[point.depth] || 0, size.width);
+    top = Math.min(top, point.y - size.height / 2);
+    bottom = Math.max(bottom, point.y + size.height / 2);
+  });
+  const columns = [0];
+  for (let depth = 1; depth < widths.length; depth++) {
+    const specifiedStep = widths[depth - 1] + TREE_GAP_X;
+    const clearStep = widths[depth - 1] / 2 + widths[depth] / 2 + TREE_GAP_X;
+    columns[depth] = columns[depth - 1] + Math.max(specifiedStep, clearStep);
+  }
+  const centreY = (top + bottom) / 2;
+  treePos.clear();
+  block.points.forEach(point => treePos.set(point.n.id, { x: columns[point.depth], y: point.y - centreY }));
+  cards.forEach(card => {
+    const n = findNodeById(root, card.dataset.id);
+    if (!n) return;
+    const pos = posOf(n);
+    card.style.left = pos.x + "px";
+    card.style.top = pos.y + "px";
+    const coord = $(".node__coord", card);
+    if (coord) coord.textContent = fmtCoord(pos.x, pos.y);
+  });
+  updateAllEdges();
+  const selected = state.selected && findNodeById(root, state.selected);
+  const inspectorCoord = $(".insp__coord");
+  if (selected && inspectorCoord) {
+    const pos = posOf(selected);
+    inspectorCoord.textContent = fmtCoord(pos.x, pos.y);
+  }
+}
+function setLayoutMode(mode) {
+  if (mode !== "tree" && mode !== "free") return false;
+  if (mode === (isTreeMode() ? "tree" : "free")) { updateLayoutControls(); return true; }
+  state.layoutMode[state.active] = mode;
+  treePos.clear();
+  renderStage();
+  updateLayoutControls();
+  saveState();
+  return true;
+}
+function bakeTreeToFree() {
+  if (!isTreeMode() || !treePos.size) return;
+  pushHistory();
+  const root = state.trees[state.active];
+  treePos.forEach((pos, id) => {
+    const n = findNodeById(root, id);
+    if (!n) return;
+    n.x = state.snap !== false ? Math.round(pos.x / 10) * 10 : pos.x;
+    n.y = state.snap !== false ? Math.round(pos.y / 10) * 10 : pos.y;
+  });
+  state.layoutMode[state.active] = "free";
+  treePos.clear();
+  renderStage();
+  updateLayoutControls();
+  saveState();
+  toast("LAYOUT · TREE COPIED TO FREE");
+}
 function renderStage() {
   const root = state.trees[state.active];
   const vp = $(".stg__viewport");
   if (!vp) return;
   vp.innerHTML = "";
-  if (!root) return;
+  if (!root) { renderInspector(); return; }
+  if (isTreeMode()) treePos.clear();
 
   const idx = CATEGORIES.findIndex(c => c.id === state.active);
   const num1 = $(".gh-num1"), num2 = $(".gh-num2");
@@ -387,8 +638,9 @@ function renderStage() {
   // edges
   flat.forEach(({ n, parent }) => {
     if (!parent) return;
-    const x1 = parent.x, y1 = parent.y;
-    const x2 = n.x, y2 = n.y;
+    const from = posOf(parent), to = posOf(n);
+    const x1 = from.x, y1 = from.y;
+    const x2 = to.x, y2 = to.y;
     const isAccent = (parent === root);
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     const midX = (x1 + x2) / 2;
@@ -404,10 +656,11 @@ function renderStage() {
     const isRoot = !parent;
     const lvl = computeLevel(n, root);
     const isMin = state.nodeStyle === "minimal";
+    const pos = posOf(n);
     const node = el("div", {
       class: "node lvl-" + lvl + (isRoot ? " is-root" : "") + (state.selected === n.id ? " is-selected" : "") + (isMin ? " is-minimal" : "") + (n._open === false ? " is-collapsed" : ""),
       "data-id": n.id,
-      style: `left:${n.x}px; top:${n.y}px; transform: translate(-50%, -50%);`,
+      style: `left:${pos.x}px; top:${pos.y}px; transform: translate(-50%, -50%);`,
     });
     const idxStr = isRoot ? "ROOT" : padIdx(i, lvl);
     const head = el("div", { class: "node__head" },
@@ -442,76 +695,67 @@ function renderStage() {
     const body = el("div", { class: "node__body" });
     const title = el("div", {
       class: "node__title" + (hasJP(n.title) ? " has-jp" : ""),
-      contenteditable: "true",
+      contenteditable: "false",
       spellcheck: "false",
     }, n.title || "Untitled");
-    title.addEventListener("focus", () => pushHistory());
-    title.addEventListener("blur", () => { n.title = title.textContent.trim(); saveState(); });
-    title.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); title.blur(); } });
+    title.addEventListener("blur", () => { if (editSession?.el === title) commitEdit(); });
+    title.addEventListener("keydown", (ev) => {
+      if (ev.isComposing || ev.keyCode === 229) return;
+      // commit directly: blur events are not delivered while the window lacks focus
+      if (ev.key === "Enter") { ev.preventDefault(); ev.stopPropagation(); commitEdit(); title.blur(); }
+    });
     body.appendChild(title);
 
     if (!isMin) {
       const notes = el("div", { class: "node__notes" });
-      const noteCount = Math.max(1, Math.min(3, (n.notes || []).length || 1));
+      // up to 3 slots: existing notes, or one more while a new slot is being edited
+      const noteCount = Math.min(3, Math.max(1, (n.notes || []).length, editNoteSlots.get(n.id) || 0));
       for (let ni = 0; ni < noteCount; ni++) {
         const noteText = (n.notes && n.notes[ni]) || "";
         const noteEl = el("div", {
           class: "n" + (noteText ? "" : " is-empty"),
-          contenteditable: "true",
+          contenteditable: "false",
           spellcheck: "false",
           "data-placeholder": "+ NOTE",
           "data-note-idx": String(ni),
         }, noteText);
-        noteEl.addEventListener("focus", () => { pushHistory(); noteEl.classList.remove("is-empty"); });
         noteEl.addEventListener("input", () => {
           const v = noteEl.textContent;
           if (!n.notes) n.notes = [];
           n.notes[ni] = v;
         });
-        noteEl.addEventListener("blur", () => {
-          const v = noteEl.textContent.trim();
-          if (!n.notes) n.notes = [];
-          n.notes[ni] = v;
-          // trim trailing empties
-          while (n.notes.length && !n.notes[n.notes.length - 1]) n.notes.pop();
-          if (!v) noteEl.classList.add("is-empty");
-          saveState();
-        });
+        noteEl.addEventListener("blur", () => { if (editSession?.el === noteEl) commitEdit(); });
         noteEl.addEventListener("keydown", (ev) => {
+          if (ev.isComposing || ev.keyCode === 229) return;
           if (ev.key === "Enter") {
             ev.preventDefault();
+            ev.stopPropagation();
             // move to next note slot or add new one if room
             const next = noteEl.parentElement.querySelector(`[data-note-idx="${ni + 1}"]`);
-            if (next) next.focus();
-            else if (ni < 2) {
-              noteEl.blur();
-              renderStage();
-              // focus newly-rendered last note
-              setTimeout(() => {
-                const dom = $(`.node[data-id="${n.id}"] [data-note-idx="${ni + 1}"]`);
-                if (dom) dom.focus();
-              }, 0);
-            } else {
-              noteEl.blur();
-            }
+            commitEdit();
+            if (next) beginEdit(n.id, "note", ni + 1);
+            else if (ni < 2) beginEdit(n.id, "note", ni + 1);
           }
         });
         notes.appendChild(noteEl);
       }
+      const more = (n.notes || []).length - 3;
+      if (more > 0) notes.appendChild(el("div", { class: "node__more" }, "+" + more));
       body.appendChild(notes);
     }
     if (!isMin && (n.url || !isRoot)) {
       const urlRow = el("div", { class: "node__url" });
       urlRow.appendChild(el("span", { class: "lbl" }, "URL"));
-      const a = n.url ? el("a", { href: n.url, target: "_blank", rel: "noreferrer noopener" }, shortUrl(n.url))
+      const a = n.url && isWebURL(n.url) ? el("a", { href: n.url, target: "_blank", rel: "noreferrer noopener" }, shortUrl(n.url))
                        : el("span", { style: "color:var(--mute);font-style:italic;" }, "—");
       urlRow.appendChild(a);
       body.appendChild(urlRow);
     }
     node.appendChild(body);
-    node.appendChild(el("div", { class: "node__coord" }, fmtCoord(n.x, n.y)));
+    node.appendChild(el("div", { class: "node__coord" }, fmtCoord(pos.x, pos.y)));
 
     const actions = el("div", { class: "node__actions" },
+      el("button", { onclick: (e) => { e.stopPropagation(); beginEdit(n.id); } }, "EDIT"),
       el("button", { onclick: (e) => { e.stopPropagation(); editURL(n); } }, "URL"),
       el("button", { onclick: (e) => { e.stopPropagation(); pickThumb(n); } }, "IMG"),
       el("button", { onclick: (e) => { e.stopPropagation(); addChild(n); } }, "+ CHILD"),
@@ -520,16 +764,20 @@ function renderStage() {
     node.appendChild(actions);
 
     node.addEventListener("click", (ev) => {
-      if (ev.target.closest(".node__title")) return;
-      if (ev.target.closest(".node__notes")) return;
+      if (editSession?.el === ev.target || editSession?.el.contains(ev.target)) return;
       if (ev.target.closest(".node__url a")) return;
       if (ev.target.closest(".node__tog")) return;
+      if (ev.target.closest(".node__actions")) return;
       ev.stopPropagation();
-      state.selected = n.id;
-      $$(".node.is-selected").forEach(el => el.classList.remove("is-selected"));
-      node.classList.add("is-selected");
-      markSelectedEdges(n);
-      updateCrumbs();
+      selectNode(n);
+    });
+    node.addEventListener("dblclick", (ev) => {
+      const note = ev.target.closest(".node__notes .n");
+      const isTitle = ev.target.closest(".node__title");
+      if (!note && !isTitle) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      beginEdit(n.id, note ? "note" : "title", note ? Number(note.dataset.noteIdx) : 0);
     });
 
     // hover: fade non-related, highlight ancestors+descendants+self
@@ -576,8 +824,14 @@ function renderStage() {
     vp.appendChild(node);
   });
 
-  applyTransform();
+  const selected = state.selected && flat.find(({ n }) => n.id === state.selected);
+  if (selected) markSelectedEdges(selected.n);
+  const bandChanged = applyTransform();
+  if (isTreeMode() && !bandChanged) recomputeTreeLayout();
+  updateLayoutControls();
+  updateSearchMatches($(".srch")?.value || "");
   $(".stg")?.classList.toggle("show-coords", state.showCoords);
+  renderInspector();
 }
 function computeLevel(node, root) {
   if (node === root) return 0;
@@ -586,6 +840,227 @@ function computeLevel(node, root) {
   return lvl < 0 ? 0 : lvl;
 }
 function padIdx(i, lvl) { const a = "0123456789ABCDEF"; return String(lvl) + a[i % 16]; }
+
+/* =========================================================
+   INSPECTOR
+   ========================================================= */
+function isWebURL(value) {
+  try {
+    const u = new URL(value);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch { return false; }
+}
+function pushInspectorSnap(snap) {
+  history.past.push(snap);
+  if (history.past.length > HIST_MAX) history.past.shift();
+  history.future.length = 0;
+}
+function commitInspectorField(target) {
+  const edit = inspectorEdit;
+  if (!edit || edit.el !== target) return;
+  inspectorEdit = null;
+  const root = state.trees[state.active];
+  const n = root && findNodeById(root, edit.id);
+  if (!n) return;
+
+  let changed = false;
+  if (edit.field === "title") {
+    const value = target.value.trim();
+    changed = value !== (n.title || "");
+    target.value = value;
+    if (changed) n.title = value;
+  } else if (edit.field === "url") {
+    const value = target.value.trim() || null;
+    changed = value !== (n.url || null);
+    target.value = value || "";
+    if (changed) n.url = value;
+  } else {
+    const values = $$(".insp__note", target.closest(".insp")).map(x => x.value);
+    while (values.length && !values[values.length - 1]) values.pop();
+    changed = JSON.stringify(values) !== JSON.stringify(n.notes || []);
+    if (changed) n.notes = values;
+  }
+  if (!changed) return;
+
+  pushInspectorSnap(edit.snap);
+  saveState();
+  inspectorRenderingLocked = true;
+  renderStage();
+  inspectorRenderingLocked = false;
+  setTimeout(() => renderInspector(), 0);
+}
+function bindInspectorField(field, kind, noteIdx) {
+  field.addEventListener("focus", () => {
+    inspectorEdit = { id: state.selected, field: kind, noteIdx, before: field.value, snap: snapshot(), el: field };
+  });
+  field.addEventListener("blur", () => {
+    if (inspectorCancelBlur) { inspectorCancelBlur = false; return; }
+    commitInspectorField(field);
+  });
+  field.addEventListener("keydown", (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      if (inspectorEdit?.el === field) field.value = inspectorEdit.before;
+      inspectorEdit = null;
+      inspectorCancelBlur = true;
+      field.blur();
+      return;
+    }
+    if (e.key === "Enter" && kind !== "note" && (kind === "url" || !e.shiftKey)) {
+      e.preventDefault();
+      e.stopPropagation();
+      commitInspectorField(field);
+      field.blur();
+      renderInspector(true);
+    }
+  });
+}
+function makeInspectorRow(label) {
+  return el("section", { class: "insp__row" }, el("div", { class: "lbl" }, label));
+}
+function renderInspector(force = false) {
+  const panel = $(".insp");
+  if (!panel || inspectorRenderingLocked) return;
+  const active = document.activeElement;
+  const selectedChanged = inspectorRenderedId !== state.selected;
+  if (!force && !selectedChanged && active && panel.contains(active) && /input|textarea/i.test(active.tagName)) return;
+
+  inspectorEdit = null;
+  inspectorRenderedId = state.selected;
+  panel.replaceChildren();
+  const root = state.trees[state.active];
+  const cat = CATEGORIES.find(c => c.id === state.active);
+  const meta = state.meta[state.active] || { count: root ? countNodes(root) : 0, depth: root ? maxDepth(root) : 0 };
+  const n = root && state.selected ? findNodeById(root, state.selected) : null;
+  const ro = document.body.classList.contains("is-readonly");
+
+  panel.appendChild(el("div", { class: "insp__hd" },
+    el("span", {}, "INSPECTOR"),
+    el("span", { class: "insp__map" }, cat ? cat.label : "MAP"),
+  ));
+  if (!n) {
+    panel.appendChild(el("div", { class: "insp__empty" },
+      el("div", { class: "insp__empty-map" }, cat ? cat.label : "MAP"),
+      el("div", { class: "insp__empty-meta" }, "N=" + meta.count + " / D=" + meta.depth),
+      el("div", { class: "insp__hint" }, "CLICK A NODE · DOUBLE-CLICK TO EDIT"),
+    ));
+    return;
+  }
+
+  const all = [];
+  (function walk(x) { all.push(x); (x.children || []).forEach(walk); })(root);
+  const lvl = computeLevel(n, root);
+  const pos = posOf(n);
+  panel.appendChild(el("div", { class: "insp__meta" },
+    el("span", {}, String(all.indexOf(n)).padStart(2, "0") + " / L" + lvl),
+    el("span", { class: "insp__id" }, n.id),
+    el("span", { class: "insp__coord" }, fmtCoord(pos.x, pos.y)),
+  ));
+
+  const titleRow = makeInspectorRow("TITLE");
+  const title = el("textarea", { class: "insp__title", rows: "2", spellcheck: "false" });
+  title.value = n.title || "";
+  title.readOnly = ro;
+  bindInspectorField(title, "title");
+  titleRow.appendChild(title);
+  panel.appendChild(titleRow);
+
+  const notesRow = makeInspectorRow("NOTES");
+  const notes = el("div", { class: "insp__notes" });
+  (n.notes || []).forEach((value, i) => {
+    const line = el("div", { class: "insp__note-row" });
+    const note = el("textarea", { class: "insp__note", "data-idx": String(i), rows: "2", spellcheck: "false" });
+    note.value = value;
+    note.readOnly = ro;
+    bindInspectorField(note, "note", i);
+    line.appendChild(note);
+    line.appendChild(el("button", {
+      class: "insp__remove-note insp__action", type: "button", title: "Remove note",
+      onclick: () => {
+        pushHistory();
+        n.notes.splice(i, 1);
+        saveState();
+        renderStage();
+      },
+    }, "×"));
+    notes.appendChild(line);
+  });
+  notesRow.appendChild(notes);
+  notesRow.appendChild(el("button", {
+    class: "insp__add-note insp__action", type: "button",
+    onclick: () => {
+      pushHistory();
+      if (!n.notes) n.notes = [];
+      n.notes.push("");
+      saveState();
+      renderStage();
+      const fields = $$(".insp__note");
+      fields[fields.length - 1]?.focus();
+    },
+  }, "+ NOTE"));
+  panel.appendChild(notesRow);
+
+  const urlRow = makeInspectorRow("URL");
+  const urlLine = el("div", { class: "insp__url-row" });
+  const url = el("input", { class: "insp__url", type: "url", spellcheck: "false" });
+  url.value = n.url || "";
+  url.readOnly = ro;
+  bindInspectorField(url, "url");
+  urlLine.appendChild(url);
+  if (isWebURL(n.url)) urlLine.appendChild(el("a", { class: "insp__open", href: n.url, target: "_blank", rel: "noreferrer noopener" }, "OPEN ↗"));
+  urlRow.appendChild(urlLine);
+  panel.appendChild(urlRow);
+
+  const imageRow = makeInspectorRow("IMAGE");
+  if (n.thumb) {
+    const img = el("img", { class: "insp__thumb", alt: "" });
+    img.src = n.thumb;
+    imageRow.appendChild(img);
+  }
+  imageRow.appendChild(el("div", { class: "insp__actions" },
+    el("button", { class: "insp__action", type: "button", onclick: () => pickThumb(n) }, "IMG…"),
+    el("button", {
+      class: "insp__action", type: "button", disabled: n.thumb ? null : "",
+      onclick: () => {
+        if (!n.thumb) return;
+        pushHistory();
+        delete n.thumb;
+        saveState();
+        renderStage();
+      },
+    }, "REMOVE"),
+  ));
+  panel.appendChild(imageRow);
+
+  const parent = findParent(root, n.id);
+  const parentRow = makeInspectorRow("PARENT");
+  if (parent) parentRow.appendChild(el("button", { class: "insp__parent", type: "button", onclick: () => selectNode(parent) }, parent.title || "Untitled"));
+  else parentRow.appendChild(el("div", { class: "insp__none" }, "—"));
+  panel.appendChild(parentRow);
+
+  const childRow = makeInspectorRow("CHILDREN (" + (n.children || []).length + ")");
+  const children = el("div", { class: "insp__children" });
+  (n.children || []).forEach(child => children.appendChild(el("button", {
+    class: "insp__child", type: "button", "data-id": child.id, onclick: () => selectNode(child),
+  }, child.title || "Untitled")));
+  if (!(n.children || []).length) children.appendChild(el("div", { class: "insp__none" }, "—"));
+  childRow.appendChild(children);
+  panel.appendChild(childRow);
+}
+function applyInspectorState() {
+  const open = state.inspector !== false;
+  $(".shell")?.classList.toggle("no-insp", !open);
+  $("#btn-insp")?.classList.toggle("is-on", open);
+  applyTransform();
+}
+function toggleInspector() {
+  state.inspector = state.inspector === false;
+  applyInspectorState();
+  saveState();
+  renderInspector();
+}
 
 function toggleCollapse(n) {
   pushHistory();
@@ -623,9 +1098,22 @@ function toggleCollapse(n) {
 /* =========================================================
    TRANSFORM
    ========================================================= */
+const DENSITY_OUTLINE_MAX = 0.55;
+const DENSITY_DETAIL_MIN = 1.15;
+const DENSITY_CLASSES = ["is-dens-outline", "is-dens-structure", "is-dens-detail"];
+function densityBand(k) {
+  if (state.density === "detail") return "detail";
+  if (k < DENSITY_OUTLINE_MAX) return "outline";
+  if (k < DENSITY_DETAIL_MIN) return "structure";
+  return "detail";
+}
 function applyTransform(smooth) {
   const v = getView();
   const vp = $(".stg__viewport");
+  const stg = $(".stg");
+  const band = densityBand(v.k);
+  const bandClass = "is-dens-" + band;
+  const bandChanged = !!stg && !stg.classList.contains(bandClass);
   if (vp) {
     if (smooth) {
       vp.classList.add("is-smooth");
@@ -634,38 +1122,212 @@ function applyTransform(smooth) {
     } else {
       vp.classList.remove("is-smooth");
     }
+    vp.style.setProperty("--k", v.k);
     vp.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.k})`;
   }
+  if (bandChanged) {
+    stg.classList.remove(...DENSITY_CLASSES);
+    stg.classList.add(bandClass);
+    if (isTreeMode()) recomputeTreeLayout();
+  }
   const lvl = $(".zoom .lvl");
-  if (lvl) lvl.textContent = Math.round(v.k * 100) + "%";
+  if (lvl) {
+    lvl.replaceChildren(
+      el("span", {}, Math.round(v.k * 100) + "%"),
+      el("small", {}, band === "structure" ? "STRUCT" : band.toUpperCase()),
+    );
+  }
+  return bandChanged;
 }
 function fitView(smooth = true) {
   const stg = $(".stg");
-  const nodes = $$(".stg__viewport .node");
+  let nodes = $$(".stg__viewport .node");
   if (!stg || !nodes.length) return;
   const stgRect = stg.getBoundingClientRect();
   if (stgRect.width < 50 || stgRect.height < 50) return; // hidden/zero-size tab: don't save a bogus 25% view
   const v = getView();
-  const bounds = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
-  nodes.forEach(node => {
-    const r = node.getBoundingClientRect();
-    bounds.left = Math.min(bounds.left, (r.left - stgRect.left - v.x) / v.k);
-    bounds.top = Math.min(bounds.top, (r.top - stgRect.top - v.y) / v.k);
-    bounds.right = Math.max(bounds.right, (r.right - stgRect.left - v.x) / v.k);
-    bounds.bottom = Math.max(bounds.bottom, (r.bottom - stgRect.top - v.y) / v.k);
-  });
-  const boundsW = Math.max(1, bounds.right - bounds.left);
-  const boundsH = Math.max(1, bounds.bottom - bounds.top);
   const availW = Math.max(1, stgRect.width - 96);
   const availH = Math.max(1, stgRect.height - 96);
-  const fitK = Math.min(availW / boundsW, availH / boundsH);
-  v.k = Math.min(1, Math.max(0.25, fitK));
-  v.x = stgRect.width / 2 - ((bounds.left + bounds.right) / 2) * v.k;
-  v.y = stgRect.height / 2 - ((bounds.top + bounds.bottom) / 2) * v.k;
-  applyTransform(smooth);
+  let boundsW = 1, boundsH = 1;
+  for (let pass = 0; pass < 2; pass++) {
+    const bounds = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
+    nodes.forEach(node => {
+      const r = node.getBoundingClientRect();
+      bounds.left = Math.min(bounds.left, (r.left - stgRect.left - v.x) / v.k);
+      bounds.top = Math.min(bounds.top, (r.top - stgRect.top - v.y) / v.k);
+      bounds.right = Math.max(bounds.right, (r.right - stgRect.left - v.x) / v.k);
+      bounds.bottom = Math.max(bounds.bottom, (r.bottom - stgRect.top - v.y) / v.k);
+    });
+    boundsW = Math.max(1, bounds.right - bounds.left);
+    boundsH = Math.max(1, bounds.bottom - bounds.top);
+    const fitK = Math.min(availW / boundsW, availH / boundsH);
+    v.k = Math.min(1, Math.max(0.25, fitK));
+    v.x = stgRect.width / 2 - ((bounds.left + bounds.right) / 2) * v.k;
+    v.y = stgRect.height / 2 - ((bounds.top + bounds.bottom) / 2) * v.k;
+    const willChangeBand = !stg.classList.contains("is-dens-" + densityBand(v.k));
+    const bandChanged = applyTransform(willChangeBand && pass === 0 ? false : smooth);
+    if (!bandChanged || pass === 1) break;
+    nodes = $$(".stg__viewport .node");
+  }
   saveState();
   updateCrumbs();
   if (boundsW * v.k > availW + 0.5 || boundsH * v.k > availH + 0.5) toast("FIT · MIN ZOOM LIMIT");
+}
+function focusNode(id, { smooth = true } = {}) {
+  const root = state.trees[state.active];
+  const n = root && findNodeById(root, id);
+  const stg = $(".stg");
+  if (!n || !stg) return false;
+  const r = stg.getBoundingClientRect();
+  if (r.width < 1 || r.height < 1) return false;
+  const v = getView();
+  v.k = Math.min(2.5, Math.max(0.25, v.k >= 0.8 ? v.k : 1));
+  const targetBand = "is-dens-" + densityBand(v.k);
+  if (!stg.classList.contains(targetBand)) applyTransform(false);
+  const pos = posOf(n);
+  v.x = r.width / 2 - pos.x * v.k;
+  v.y = r.height / 2 - pos.y * v.k;
+  applyTransform(smooth);
+  if (!document.body.classList.contains("is-readonly")) saveState();
+  updateCrumbs();
+  return true;
+}
+
+/* =========================================================
+   SEARCH
+   ========================================================= */
+let searchResults = [];
+let searchIndex = -1;
+let searchTimer = 0;
+let searchOpen = false;
+function searchNodes(query) {
+  const q = String(query || "").trim().toLocaleLowerCase();
+  if (!q) return [];
+  const ordered = [
+    ...CATEGORIES.filter(c => c.id === state.active),
+    ...CATEGORIES.filter(c => c.id !== state.active),
+  ];
+  const results = [];
+  ordered.forEach(cat => {
+    const root = state.trees[cat.id];
+    if (!root) return;
+    (function walk(n) {
+      let field = "";
+      if (String(n.title || "").toLocaleLowerCase().includes(q)) field = "title";
+      else if ((n.notes || []).some(note => String(note || "").toLocaleLowerCase().includes(q))) field = "note";
+      else if (String(n.url || "").toLocaleLowerCase().includes(q)) field = "url";
+      if (field) results.push({ cat: cat.id, id: n.id, title: n.title || "Untitled", field });
+      (n.children || []).forEach(walk);
+    })(root);
+  });
+  return results;
+}
+function searchSnippet(n, query) {
+  const q = query.toLocaleLowerCase();
+  const note = (n.notes || []).find(text => String(text || "").toLocaleLowerCase().includes(q));
+  if (!note) return "";
+  const at = note.toLocaleLowerCase().indexOf(q);
+  const start = Math.max(0, at - 28);
+  const end = Math.min(note.length, at + query.length + 40);
+  return (start ? "…" : "") + note.slice(start, end) + (end < note.length ? "…" : "");
+}
+function updateSearchMatches(query, show = searchOpen) {
+  const q = String(query || "").trim().toLocaleLowerCase();
+  $$(".stg__viewport .node").forEach(dom => {
+    const n = findNodeById(state.trees[state.active], dom.dataset.id);
+    const match = !!(show && q && n && [n.title, ...(n.notes || []), n.url || ""]
+      .some(text => String(text || "").toLocaleLowerCase().includes(q)));
+    dom.classList.toggle("is-match", match);
+  });
+}
+function closeSearch({ clear = false, focusStage = false } = {}) {
+  const input = $(".srch");
+  const list = $(".srch__list");
+  searchOpen = false;
+  searchIndex = -1;
+  searchResults = [];
+  clearTimeout(searchTimer);
+  if (clear && input) input.value = "";
+  if (list) { list.replaceChildren(); list.hidden = true; }
+  updateSearchMatches("", false);
+  if (focusStage) $(".stg")?.focus({ preventScroll: true });
+}
+function renderSearch() {
+  const input = $(".srch");
+  const list = $(".srch__list");
+  if (!input || !list) return;
+  const query = input.value.trim();
+  if (!query) { closeSearch(); return; }
+  searchResults = searchNodes(query).slice(0, 30);
+  searchIndex = -1;
+  searchOpen = true;
+  list.replaceChildren();
+  searchResults.forEach((result) => {
+    const cat = CATEGORIES.find(c => c.id === result.cat);
+    const n = findNodeById(state.trees[result.cat], result.id);
+    const row = el("button", { class: "srch__row", type: "button", role: "option" });
+    const map = el("span", { class: "srch__map" });
+    const body = el("span", { class: "srch__body" });
+    const title = el("span", { class: "srch__title" });
+    map.textContent = cat?.label || result.cat;
+    title.textContent = result.title;
+    body.appendChild(title);
+    if (result.field === "note" && n) {
+      const snippet = el("span", { class: "srch__snippet" });
+      snippet.textContent = searchSnippet(n, query);
+      body.appendChild(snippet);
+    }
+    row.append(map, body);
+    row.addEventListener("click", () => jumpToSearchResult(result));
+    list.appendChild(row);
+  });
+  list.hidden = false;
+  updateSearchMatches(query);
+}
+function setSearchIndex(next) {
+  if (!searchResults.length) return;
+  searchIndex = (next + searchResults.length) % searchResults.length;
+  $$(".srch__row", $(".srch__list")).forEach((row, i) => {
+    row.classList.toggle("is-active", i === searchIndex);
+    row.setAttribute("aria-selected", i === searchIndex ? "true" : "false");
+    if (i === searchIndex) row.scrollIntoView({ block: "nearest" });
+  });
+}
+function openCollapsedAncestors(root, id, readonly) {
+  const path = [];
+  function find(n) {
+    if (n.id === id) return true;
+    for (const child of n.children || []) {
+      path.push(n);
+      if (find(child)) return true;
+      path.pop();
+    }
+    return false;
+  }
+  if (!find(root)) return false;
+  const closed = path.filter(n => n._open === false);
+  if (!closed.length) return false;
+  if (!readonly) pushHistory();
+  closed.forEach(n => { n._open = true; });
+  return true;
+}
+function jumpToSearchResult(result) {
+  if (!result) return;
+  const readonly = document.body.classList.contains("is-readonly");
+  if (state.active !== result.cat) {
+    state.active = result.cat;
+    state.selected = null;
+    if (readonly) getView();
+    renderAll({ save: !readonly });
+  }
+  const root = state.trees[state.active];
+  const node = root && findNodeById(root, result.id);
+  if (!node) { closeSearch(); return; }
+  openCollapsedAncestors(root, node.id, readonly);
+  renderStage();
+  selectNode(node);
+  focusNode(node.id);
+  closeSearch();
 }
 
 const dragState = { kind: null };
@@ -700,6 +1362,29 @@ function moveActiveDrag(e) {
   const dxScreen = e.clientX - dragState.sx;
   const dyScreen = e.clientY - dragState.sy;
   if (!dragState.started && Math.hypot(dxScreen, dyScreen) < 4) return;
+  if (dragState.treeMode) {
+    dragState.lastX = e.clientX;
+    dragState.lastY = e.clientY;
+    dragState.lastShift = e.shiftKey;
+    if (!e.shiftKey) {
+      if (!dragState.warned) {
+        dragState.warned = true;
+        toast("TREE · DRAG IS OFF — PRESS T FOR FREE");
+      }
+      clearDropTarget();
+      return;
+    }
+    if (!dragState.started) {
+      dragState.started = true;
+      dragState.future = history.future.slice();
+      pushHistory();
+      dragState.el.classList.add("dragging");
+    }
+    clearDropTarget();
+    const target = pickNodeAt(e.clientX, e.clientY, dragState.node);
+    if (target) target.dom.classList.add("drop-target");
+    return;
+  }
   if (!dragState.started) {
     dragState.started = true;
     dragState.future = history.future.slice();
@@ -748,6 +1433,20 @@ function endActiveDrag(e, reason = "release") {
   const { node, el: nodeEl, ox, oy, started, future } = dragState;
   const restore = reason === "escape" || reason === "cancel";
   const allowReparent = reason === "release" && !!(e && e.shiftKey);
+  if (dragState.treeMode) {
+    nodeEl.classList.remove("dragging");
+    clearDropTarget();
+    const cx = e ? e.clientX : dragState.lastX;
+    const cy = e ? e.clientY : dragState.lastY;
+    const target = started && allowReparent ? pickNodeAt(cx, cy, node) : null;
+    if (started && (!target || restore)) {
+      history.past.pop();
+      history.future = future;
+    }
+    resetDragState();
+    if (target && !restore && target.node !== node) reparent(node, target.node);
+    return;
+  }
   if (started && restore) {
     node.x = ox;
     node.y = oy;
@@ -774,7 +1473,7 @@ function endActiveDrag(e, reason = "release") {
   const target = started && allowReparent ? pickNodeAt(cx, cy, node) : null;
   resetDragState();
   if (target && target.node !== node) reparent(node, target.node);
-  else if (started && !restore) saveState();
+  else if (started && !restore) { saveState(); renderInspector(); }
 }
 function attachStagePanZoom() {
   const stg = $(".stg");
@@ -786,12 +1485,18 @@ function attachStagePanZoom() {
     if (e.target.closest(".hint")) return;
     if (e.target.closest(".stg__axis")) return;
     if (e.button !== 0) return;
+    e.preventDefault();
+    const focused = document.activeElement;
+    if (focused && $(".insp")?.contains(focused)) commitInspectorField(focused);
     const v = getView();
     Object.assign(dragState, { kind: "pan", sx: e.clientX, sy: e.clientY, ox: v.x, oy: v.y });
     capturePointer(stg, e);
     stg.classList.add("is-panning");
     state.selected = null;
     $$(".node.is-selected").forEach(el => el.classList.remove("is-selected"));
+    markSelectedEdges(null);
+    updateCrumbs();
+    renderInspector();
   }
   stg.addEventListener("pointerdown", startPan);
   stg.addEventListener("pointermove", moveActiveDrag);
@@ -832,8 +1537,7 @@ function attachNodeDrag() {
   vp.addEventListener("pointerdown", (e) => {
     const elNode = e.target.closest(".node");
     if (!elNode || !vp.contains(elNode)) return;
-    if (e.target.closest(".node__title")) return;
-    if (e.target.closest(".node__notes")) return;
+    if (editSession?.el === e.target || editSession?.el.contains(e.target)) return;
     if (e.target.closest(".node__url a")) return;
     if (e.target.closest(".node__actions")) return;
     if (e.target.closest(".node__tog")) return;
@@ -844,6 +1548,7 @@ function attachNodeDrag() {
       kind: "node", node: n, el: elNode, started: false,
       sx: e.clientX, sy: e.clientY, ox: n.x, oy: n.y,
       lastX: e.clientX, lastY: e.clientY, lastAlt: false, lastShift: false,
+      treeMode: isTreeMode(), warned: false,
     });
     capturePointer(elNode, e);
     e.stopPropagation();
@@ -936,8 +1641,9 @@ function updateEdgesForNode(n) {
     const a = findNodeById(root, fromId);
     const b = findNodeById(root, toId);
     if (!a || !b) return;
-    const midX = (a.x + b.x) / 2;
-    p.setAttribute("d", `M ${a.x} ${a.y} L ${midX} ${a.y} L ${midX} ${b.y} L ${b.x} ${b.y}`);
+    const from = posOf(a), to = posOf(b);
+    const midX = (from.x + to.x) / 2;
+    p.setAttribute("d", `M ${from.x} ${from.y} L ${midX} ${from.y} L ${midX} ${to.y} L ${to.x} ${to.y}`);
   });
 }
 
@@ -945,6 +1651,7 @@ function updateEdgesForNode(n) {
    NODE OPS
    ========================================================= */
 function addChild(parent) {
+  if (document.body.classList.contains("is-readonly")) return;
   pushHistory();
   const id = "n_" + Math.random().toString(36).slice(2, 8);
   const newNode = { id, title: "NEW NODE", url: null, notes: [], children: [], _open: true,
@@ -956,18 +1663,7 @@ function addChild(parent) {
   state.meta[state.active].depth = maxDepth(state.trees[state.active]);
   renderStage(); renderSidebar(); saveState();
   toast("NODE ADDED");
-  // auto-focus + select the new title so the user can immediately rename
-  setTimeout(() => {
-    const titleEl = document.querySelector(`.node[data-id="${id}"] .node__title`);
-    if (titleEl) {
-      titleEl.focus();
-      const range = document.createRange();
-      range.selectNodeContents(titleEl);
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }
-  }, 30);
+  beginEdit(id);
 }
 function delNode(n) {
   const root = state.trees[state.active];
@@ -1081,6 +1777,8 @@ function renderTweaks() {
   body.appendChild(makeSeg("COORDS", ["off", "on"], state.showCoords ? "on" : "off", v => { state.showCoords = (v === "on"); saveState(); $(".stg")?.classList.toggle("show-coords", state.showCoords); renderTweaks(); }));
   body.appendChild(makeSeg("NODE", ["block", "minimal"], state.nodeStyle, v => { state.nodeStyle = v; saveState(); renderStage(); renderTweaks(); }));
   body.appendChild(makeSeg("SNAP 10 · ALT = FREE", ["on", "off"], state.snap === false ? "off" : "on", v => { state.snap = (v === "on"); saveState(); renderTweaks(); }));
+
+  body.appendChild(makeSeg("DENSITY · AUTO BY ZOOM", ["auto", "detail"], state.density, v => { state.density = v; applyTransform(); saveState(); renderTweaks(); }));
 
   // full reset (with confirm)
   const resetAllBtn = el("button", {
@@ -1266,13 +1964,19 @@ function toast(msg) {
 /* =========================================================
    INIT
    ========================================================= */
-function renderAll() {
+function renderAll({ save = true } = {}) {
   const shouldFit = !state.views[state.active];
   applyTheme();
+  applyInspectorState();
   renderSidebar();
   renderStage();
-  if (shouldFit) fitView(false);
-  else { updateCrumbs(); saveState(); }
+  if (shouldFit) {
+    if (save) fitView(false);
+    else { getView(); applyTransform(); updateCrumbs(); }
+  } else {
+    updateCrumbs();
+    if (save) saveState();
+  }
 }
 
 async function init() {
@@ -1287,24 +1991,100 @@ async function init() {
     addChild(parent || root);
   });
   $("#btn-fit").addEventListener("click", () => fitView());
+  $("#btn-tree").addEventListener("click", () => setLayoutMode("tree"));
+  $("#btn-free").addEventListener("click", () => setLayoutMode("free"));
+  $("#btn-tree-bake").addEventListener("click", bakeTreeToFree);
+  $("#btn-insp").addEventListener("click", toggleInspector);
   $("#btn-export").addEventListener("click", exportJSON);
   $("#btn-export-md").addEventListener("click", exportMD);
   $("#btn-import").addEventListener("click", importJSON);
   $("#btn-import-md").addEventListener("click", importMD);
+  // FILE menu: toggle on its button, close after a pick, on outside press or Esc
+  const fileMenu = $(".hd__menu");
+  const setFileMenu = (open) => {
+    $(".hd__menu-list", fileMenu).hidden = !open;
+    $(".hd__menu-btn", fileMenu).setAttribute("aria-expanded", String(open));
+  };
+  $(".hd__menu-btn", fileMenu).addEventListener("click", () => setFileMenu($(".hd__menu-list", fileMenu).hidden));
+  $(".hd__menu-list", fileMenu).addEventListener("click", (e) => { if (e.target.closest("button")) setFileMenu(false); });
+  document.addEventListener("pointerdown", (e) => { if (!fileMenu.contains(e.target)) setFileMenu(false); });
+  fileMenu.addEventListener("keydown", (e) => { if (e.key === "Escape") { setFileMenu(false); $(".hd__menu-btn", fileMenu).focus(); } });
   $("#btn-tweaks").addEventListener("click", () => openTweaks());
 
   $(".zoom .zin").addEventListener("click", () => { const v=getView(); v.k=Math.min(2.5,v.k*1.15); applyTransform(true); saveState(); updateCrumbs(); });
   $(".zoom .zout").addEventListener("click", () => { const v=getView(); v.k=Math.max(0.25,v.k/1.15); applyTransform(true); saveState(); updateCrumbs(); });
   $(".zoom .zfit").addEventListener("click", () => fitView());
+  $(".zoom .zfocus").addEventListener("click", () => {
+    if (!state.selected) { toast("FOCUS · SELECT A NODE"); return; }
+    focusNode(state.selected);
+  });
+
+  const searchInput = $(".srch");
+  searchInput.addEventListener("input", (e) => {
+    if (e.isComposing) return;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(renderSearch, 80);
+  });
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setSearchIndex(searchIndex + 1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setSearchIndex(searchIndex < 0 ? searchResults.length - 1 : searchIndex - 1); }
+    else if (e.key === "Enter" && searchIndex >= 0) { e.preventDefault(); jumpToSearchResult(searchResults[searchIndex]); }
+    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeSearch({ clear: true, focusStage: true }); }
+  });
+  document.addEventListener("pointerdown", (e) => {
+    if (!(e.target instanceof Element && e.target.closest(".srch-wrap"))) closeSearch();
+  });
 
   // keyboard shortcuts
   window.addEventListener("keydown", (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === "Escape" && window.cancelCategoryDrag?.()) { e.preventDefault(); return; }
+    if (window.isKeysOpen?.()) {
+      if (e.key === "Escape" || (!e.ctrlKey && !e.metaKey && !e.altKey && e.key === "?")) {
+        e.preventDefault();
+        window.closeKeys?.();
+      }
+      return;
+    }
     if (e.key === "Escape" && dragState.kind) { e.preventDefault(); endActiveDrag(e, "escape"); return; }
+    if (editSession) {
+      if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
+      return;
+    }
     if (e.target && (e.target.isContentEditable || /input|textarea/i.test(e.target.tagName))) return;
     const meta = e.ctrlKey || e.metaKey;
-    if (meta && !e.shiftKey && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); }
+    if (!meta && !e.altKey && e.key === "?") {
+      e.preventDefault(); window.openKeys?.();
+    }
+    else if ((!meta && !e.altKey && !e.shiftKey && e.key === "/") || (meta && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k")) {
+      e.preventDefault(); searchInput.focus(); searchInput.select();
+    }
+    else if (meta && !e.shiftKey && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); }
     else if (meta && (e.shiftKey && e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) { e.preventDefault(); redo(); }
+    else if (!meta && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "t") { e.preventDefault(); setLayoutMode(isTreeMode() ? "free" : "tree"); }
     else if (!meta && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); fitView(); }
+    else if (!meta && !e.altKey && e.shiftKey && e.key.toLowerCase() === "f") {
+      e.preventDefault();
+      if (!state.selected) toast("FOCUS · SELECT A NODE");
+      else focusNode(state.selected);
+    }
+    else if (!meta && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "i") { e.preventDefault(); toggleInspector(); }
+    else if (!meta && !e.altKey && !e.shiftKey && (e.key === "Enter" || e.key === "F2") && state.selected) {
+      e.preventDefault(); beginEdit(state.selected);
+    }
+    else if (!meta && !e.altKey && !e.shiftKey && e.key === "Tab" && state.selected && !document.body.classList.contains("is-readonly")) {
+      e.preventDefault();
+      const n = findNodeById(state.trees[state.active], state.selected);
+      if (n) addChild(n);
+    }
+    else if (!meta && !e.altKey && !e.shiftKey && e.key === "Escape") {
+      state.selected = null;
+      $$(".node.is-selected").forEach(x => x.classList.remove("is-selected"));
+      markSelectedEdges(null);
+      updateCrumbs();
+      renderInspector();
+    }
   });
 
   // edit mode protocol
@@ -1332,3 +2112,9 @@ window.toast = toast;
 window.findNodeById = findNodeById;
 window.getView = getView;
 window.fitView = fitView;
+window.focusNode = focusNode;
+window.searchNodes = searchNodes;
+window.beginEdit = beginEdit;
+window.renderInspector = renderInspector;
+window.posOf = posOf;
+window.setLayoutMode = setLayoutMode;

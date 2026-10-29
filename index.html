@@ -9,8 +9,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="styles.css?v=16" />
-<link rel="stylesheet" href="extras.css?v=9" />
+  <link rel="stylesheet" href="styles.css?v=28" />
+<link rel="stylesheet" href="extras.css?v=11" />
 <template id="__bundler_thumbnail">
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 140">
   <rect width="200" height="140" fill="#f2f2ef"/>
@@ -35,12 +35,26 @@
     </div>
     <div class="hd__crumbs"></div>
     <div class="hd__tools">
+      <div class="srch-wrap">
+        <input class="srch" type="search" placeholder="SEARCH  /" aria-label="Search nodes" autocomplete="off" />
+        <div class="srch__list" role="listbox" hidden></div>
+      </div>
       <button id="btn-add" title="Add child to selected node (or root)"><span class="dot"></span>+ NODE</button>
       <button id="btn-fit" title="Fit to view"><span class="dot"></span>FIT</button>
-      <button id="btn-import-md">IMPORT.MD</button>
-      <button id="btn-import">IMPORT.JSON</button>
-      <button id="btn-export-md">EXPORT.MD</button>
-      <button id="btn-export">EXPORT.JSON</button>
+      <button id="btn-tree" class="layout-btn" title="Use computed tree layout"><span class="dot"></span>TREE</button>
+      <button id="btn-free" class="layout-btn" title="Use hand-placed layout"><span class="dot"></span>FREE</button>
+      <button id="btn-tree-bake" class="layout-bake" title="Copy visible tree positions to free layout" hidden>TREE → FREE</button>
+      <button id="btn-insp" title="Toggle inspector"><span class="dot"></span>INSPECT</button>
+      <div class="hd__menu">
+        <button class="hd__menu-btn" type="button" aria-haspopup="true" aria-expanded="false"><span class="dot"></span>FILE ▾</button>
+        <div class="hd__menu-list" hidden>
+          <button id="btn-import-md">IMPORT.MD</button>
+          <button id="btn-import">IMPORT.JSON</button>
+          <button id="btn-export-md">EXPORT.MD</button>
+          <button id="btn-export">EXPORT.JSON</button>
+        </div>
+      </div>
+      <button id="btn-keys"><span class="dot"></span>KEYS</button>
       <button id="btn-tweaks" class="tool-acc"><span class="dot"></span>TWEAKS</button>
     </div>
   </header>
@@ -56,7 +70,7 @@
   </aside>
 
   <!-- STAGE -->
-  <main class="stg" data-screen-label="Mindmap Canvas">
+  <main class="stg" data-screen-label="Mindmap Canvas" tabindex="-1">
     <div class="stg__plate"></div>
     <div class="stg__data" aria-hidden="true">
       <span class="d-tc">TC 00:14:23:08</span>
@@ -106,14 +120,21 @@
       <div class="lvl">100%</div>
       <button class="zout">−</button>
       <button class="zfit" style="font-size:9px;">FIT</button>
+      <button class="zfocus" style="font-size:8px;">FOCUS</button>
     </div>
     <div class="hint">
       <span><b>DRAG</b> · MOVE NODE</span>
       <span><b>SHIFT+DRAG</b> · RE-PARENT</span>
-      <span><b>CLICK TITLE</b> · EDIT</span>
+      <span><b>CLICK</b> · SELECT</span>
+      <span><b>DBL-CLICK / ENTER</b> · EDIT</span>
+      <span><b>TAB</b> · ADD CHILD</span>
       <span><b>WHEEL</b> · ZOOM</span>
+      <span class="hint__keys"><b>?</b> · ALL KEYS</span>
     </div>
   </main>
+
+  <!-- INSPECTOR -->
+  <aside class="insp" aria-label="Node inspector"></aside>
 
   <!-- FOOTER -->
   <footer class="foot">
@@ -141,7 +162,7 @@ const __TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "nodeStyle": "block"
 }/*EDITMODE-END*/;
 </script>
-<script src="app.js?v=12"></script>
-<script src="extras.js?v=9"></script>
+  <script src="app.js?v=22"></script>
+<script src="extras.js?v=14"></script>
 </body>
 </html>

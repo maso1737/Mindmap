@@ -107,6 +107,87 @@
   window.exModal = { prompt: openPrompt, confirm: openConfirm, form: openForm };
 
   /* =====================================================
+     SHORTCUT SHEET
+     ===================================================== */
+  const keyGroups = [
+    ["NAVIGATE", [
+      ["?", "OPEN / CLOSE KEYS · 一覧を開閉"],
+      ["/  /  CTRL⌘ K", "SEARCH · 検索へ移動"],
+      ["↑  ↓", "SEARCH RESULT · 候補移動"],
+      ["ENTER", "SEARCH RESULT · 選択へ移動"],
+      ["ESC", "SEARCH · 閉じる"],
+      ["F", "FIT VIEW · 全体表示"],
+      ["SHIFT F", "FOCUS NODE · 選択を中央へ"],
+      ["I", "INSPECTOR · 表示切替"],
+    ]],
+    ["SELECT & EDIT", [
+      ["CLICK NODE", "SELECT · ノード選択"],
+      ["DBL-CLICK TEXT", "EDIT · タイトル／ノート編集"],
+      ["ENTER  /  F2", "EDIT TITLE · 選択を編集"],
+      ["TAB", "ADD CHILD · 子ノード追加"],
+      ["ENTER · TITLE", "COMMIT · タイトル確定"],
+      ["ENTER · NOTE", "NEW LINE · ノート改行"],
+      ["SHIFT ENTER · NOTE", "NEXT NOTE · 次のノートへ"],
+      ["ESC · EDIT", "CANCEL · 編集を戻す"],
+      ["ENTER · INSPECTOR", "COMMIT · TITLE／URL確定"],
+      ["ESC · INSPECTOR", "REVERT · 入力を戻す"],
+      ["ESC", "CLEAR SELECTION · 選択解除"],
+    ]],
+    ["LAYOUT", [
+      ["T", "TREE / FREE · レイアウト切替"],
+    ]],
+    ["MOUSE", [
+      ["DRAG NODE", "MOVE · FREEで移動"],
+      ["SHIFT DRAG", "RE-PARENT · 親を変更"],
+      ["ALT · RELEASE", "FREE DROP · スナップ解除"],
+      ["DRAG BACKGROUND", "PAN · キャンバス移動"],
+      ["WHEEL", "ZOOM · 拡大縮小"],
+      ["DRAG CATEGORY", "REORDER · カテゴリ並替"],
+      ["ESC · DRAG", "CANCEL · ドラッグを戻す"],
+    ]],
+    ["FILE · HISTORY", [
+      ["ESC · FILE MENU", "CLOSE MENU · メニューを閉じる"],
+      ["ESC · DIALOG", "CANCEL DIALOG · ダイアログを閉じる"],
+      ["CTRL⌘ Z", "UNDO · 取り消し"],
+      ["CTRL⌘ SHIFT Z  /  CTRL⌘ Y", "REDO · やり直し"],
+    ]],
+  ];
+  const keysModal = document.createElement("div");
+  keysModal.className = "ex-modal keys-modal";
+  keysModal.innerHTML = `
+    <div class="ex-modal__bg"></div>
+    <div class="ex-modal__panel keys-modal__panel" role="dialog" aria-modal="true" aria-labelledby="keys-title">
+      <div class="ex-modal__hd">
+        <span class="ex-modal__title" id="keys-title">KEYS · ALL SHORTCUTS</span>
+        <button class="ex-modal__x" aria-label="Close shortcut sheet" type="button">×</button>
+      </div>
+      <div class="keys-modal__body">
+        <div class="keys-modal__cols"><span>KEY</span><span>ACTION</span></div>
+        ${keyGroups.map(([group, rows]) => `
+          <section class="keys-group">
+            <h2>${group}</h2>
+            ${rows.map(([key, action]) => `<div class="keys-row"><kbd>${key}</kbd><span>${action}</span></div>`).join("")}
+          </section>`).join("")}
+      </div>
+    </div>`;
+  document.body.appendChild(keysModal);
+
+  function openKeys() {
+    keysModal.classList.add("is-open");
+    $(".ex-modal__x", keysModal).focus({ preventScroll: true });
+  }
+  function closeKeys() {
+    keysModal.classList.remove("is-open");
+  }
+  window.openKeys = openKeys;
+  window.closeKeys = closeKeys;
+  window.isKeysOpen = () => keysModal.classList.contains("is-open");
+  $(".ex-modal__bg", keysModal).addEventListener("click", closeKeys);
+  $(".ex-modal__x", keysModal).addEventListener("click", closeKeys);
+  $("#btn-keys")?.addEventListener("click", openKeys);
+  $(".hint")?.addEventListener("click", openKeys);
+
+  /* =====================================================
      CATEGORY: + NEW + reorder + delete custom
      Relies on window.CATEGORIES (exposed by app.js) and window.state
      ===================================================== */
@@ -157,6 +238,127 @@
     setTimeout(decorateSidebar, 10);
   }
 
+  let catDrag = null;
+  let catDragFrame = 0;
+  let suppressCatClick = false;
+
+  function categoryIndex(row) {
+    return window.CATEGORIES.findIndex(cat => cat.id === row?.dataset.id);
+  }
+
+  function updateCategoryDrag(clientY) {
+    if (!catDrag?.started) return;
+    const { list, row } = catDrag;
+    catDrag.lastY = clientY;
+    row.style.transform = `translateY(${clientY - catDrag.startY + list.scrollTop - catDrag.startScroll}px)`;
+    const others = $$(".cat", list).filter(item => item !== row);
+    catDrag.toIndex = others.reduce((n, item) => n + (clientY >= item.getBoundingClientRect().top + item.getBoundingClientRect().height / 2 ? 1 : 0), 0);
+    const listRect = list.getBoundingClientRect();
+    let lineY;
+    if (!others.length) lineY = row.getBoundingClientRect().top;
+    else if (catDrag.toIndex >= others.length) lineY = others[others.length - 1].getBoundingClientRect().bottom;
+    else lineY = others[catDrag.toIndex].getBoundingClientRect().top;
+    catDrag.line.style.top = `${lineY - listRect.top + list.scrollTop}px`;
+  }
+
+  function categoryAutoScroll() {
+    if (!catDrag?.started) { catDragFrame = 0; return; }
+    const rect = catDrag.list.getBoundingClientRect();
+    const edge = 42;
+    let speed = 0;
+    if (catDrag.lastY < rect.top + edge) speed = -Math.min(14, (rect.top + edge - catDrag.lastY) * 0.35);
+    else if (catDrag.lastY > rect.bottom - edge) speed = Math.min(14, (catDrag.lastY - rect.bottom + edge) * 0.35);
+    if (speed) {
+      const before = catDrag.list.scrollTop;
+      catDrag.list.scrollTop += speed;
+      if (catDrag.list.scrollTop !== before) updateCategoryDrag(catDrag.lastY);
+    }
+    catDragFrame = requestAnimationFrame(categoryAutoScroll);
+  }
+
+  function cleanCategoryDrag() {
+    if (!catDrag) return;
+    const drag = catDrag;
+    catDrag = null;
+    cancelAnimationFrame(catDragFrame);
+    catDragFrame = 0;
+    drag.row.classList.remove("is-cat-dragging");
+    drag.row.style.transform = "";
+    drag.list.classList.remove("is-cat-reordering");
+    drag.line?.remove();
+    try { drag.row.releasePointerCapture(drag.pointerId); } catch {}
+  }
+
+  function cancelCategoryDrag() {
+    if (!catDrag) return false;
+    const dragged = catDrag.started;
+    if (dragged) {
+      suppressCatClick = true;
+      setTimeout(() => { suppressCatClick = false; }, 0);
+    }
+    cleanCategoryDrag();
+    return true;
+  }
+  window.cancelCategoryDrag = cancelCategoryDrag;
+
+  function bindCategoryDrag(list) {
+    if (list.__catDragBound) return;
+    list.__catDragBound = true;
+    list.addEventListener("pointerdown", (e) => {
+      const row = e.target.closest(".cat");
+      if (!row || !list.contains(row) || e.target.closest(".cat__ord")) return;
+      if (document.body.classList.contains("is-readonly") || e.button !== 0) return;
+      const fromIndex = categoryIndex(row);
+      if (fromIndex < 0) return;
+      catDrag = {
+        list, row, fromIndex, toIndex: fromIndex, pointerId: e.pointerId,
+        startY: e.clientY, lastY: e.clientY, startScroll: list.scrollTop, started: false,
+      };
+      try { row.setPointerCapture(e.pointerId); } catch {}
+    });
+    list.addEventListener("pointermove", (e) => {
+      if (!catDrag || e.pointerId !== catDrag.pointerId) return;
+      if (!catDrag.started && Math.abs(e.clientY - catDrag.startY) <= 4) return;
+      e.preventDefault();
+      if (!catDrag.started) {
+        catDrag.started = true;
+        catDrag.row.classList.add("is-cat-dragging");
+        list.classList.add("is-cat-reordering");
+        catDrag.line = document.createElement("div");
+        catDrag.line.className = "cat-drop-line";
+        list.appendChild(catDrag.line);
+        catDragFrame = requestAnimationFrame(categoryAutoScroll);
+      }
+      updateCategoryDrag(e.clientY);
+    });
+    list.addEventListener("pointerup", (e) => {
+      if (!catDrag || e.pointerId !== catDrag.pointerId) return;
+      if (!catDrag.started) { cleanCategoryDrag(); return; }
+      e.preventDefault();
+      suppressCatClick = true;
+      setTimeout(() => { suppressCatClick = false; }, 0);
+      const { row, toIndex } = catDrag;
+      const id = row.dataset.id;
+      cleanCategoryDrag();
+      const fromIndex = window.CATEGORIES.findIndex(cat => cat.id === id);
+      if (fromIndex < 0 || fromIndex === toIndex) return;
+      const [cat] = window.CATEGORIES.splice(fromIndex, 1);
+      window.CATEGORIES.splice(toIndex, 0, cat);
+      persistOrder();
+      window.renderSidebar?.();
+      decorateSidebar();
+      window.toast?.("ORDER · SAVED");
+    });
+    list.addEventListener("pointercancel", cancelCategoryDrag);
+    list.addEventListener("lostpointercapture", () => { if (catDrag) cancelCategoryDrag(); });
+    list.addEventListener("click", (e) => {
+      if (!suppressCatClick || !e.target.closest(".cat")) return;
+      suppressCatClick = false;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }, true);
+  }
+
   async function delCustomCat(idx) {
     const C = window.CATEGORIES;
     const cat = C[idx];
@@ -182,6 +384,7 @@
   function decorateSidebar() {
     const list = $(".sb__list");
     if (!list) return;
+    bindCategoryDrag(list);
 
     // Add "+ NEW CATEGORY" once at top of list
     if (!$(".sb__add")) {
@@ -194,9 +397,9 @@
     }
 
     // Inject reorder/delete controls into each .cat
-    $$(".cat", list).forEach((row, i) => {
+    $$(".cat", list).forEach((row) => {
       if (row.querySelector(".cat__ord")) return;
-      const cat = window.CATEGORIES[i];
+      const cat = window.CATEGORIES.find(item => item.id === row.dataset.id);
       const ord = document.createElement("div");
       ord.className = "cat__ord";
       ord.innerHTML = `
@@ -205,10 +408,11 @@
         ${cat && cat.custom ? `<button class="ord-del" type="button" title="Delete category">×</button>` : ""}`;
       ord.addEventListener("click", e => e.stopPropagation());
       ord.addEventListener("mousedown", e => e.stopPropagation());
-      $(".ord-up", ord).addEventListener("click", () => moveCat(i, -1));
-      $(".ord-dn", ord).addEventListener("click", () => moveCat(i, +1));
+      ord.addEventListener("pointerdown", e => e.stopPropagation());
+      $(".ord-up", ord).addEventListener("click", () => moveCat(categoryIndex(row), -1));
+      $(".ord-dn", ord).addEventListener("click", () => moveCat(categoryIndex(row), +1));
       const delBtn = $(".ord-del", ord);
-      if (delBtn) delBtn.addEventListener("click", () => delCustomCat(i));
+      if (delBtn) delBtn.addEventListener("click", () => delCustomCat(categoryIndex(row)));
       row.appendChild(ord);
     });
   }
@@ -252,6 +456,7 @@
       if (n.__exEnh) return;
       n.__exEnh = true;
       n.addEventListener("keydown", function (ev) {
+        if (ev.isComposing || ev.keyCode === 229) return;
         if (ev.key !== "Enter") return;
         if (ev.shiftKey) return; // existing app.js: Shift+Enter -> next slot
         ev.stopImmediatePropagation();
@@ -446,8 +651,11 @@
       b.addEventListener("click", onclick);
       return b;
     };
-    tools.insertBefore(mk("btn-save-default", "SAVE · DEFAULT", "var(--acc)", saveCurrentDefault, "Save current layout as default for this category"), tweaks);
-    tools.insertBefore(mk("btn-load-default", "LOAD · DEFAULT", "var(--ink)", restoreDefault, "Restore saved default layout"), tweaks);
+    // live in the FILE menu when it exists (header ran out of room at 1280px)
+    const menu = $(".hd__menu-list", tools);
+    const put = (b) => menu ? menu.appendChild(b) : tools.insertBefore(b, tweaks);
+    put(mk("btn-save-default", "SAVE · DEFAULT", "var(--acc)", saveCurrentDefault, "Save current layout as default for this category"));
+    put(mk("btn-load-default", "LOAD · DEFAULT", "var(--ink)", restoreDefault, "Restore saved default layout"));
   }
 
   /* =====================================================
@@ -708,6 +916,7 @@
     if (!isRO) return;
 
     document.body.classList.add("is-readonly");
+    window.renderInspector && window.renderInspector(true);
 
     // badge
     const badge = document.createElement("div");

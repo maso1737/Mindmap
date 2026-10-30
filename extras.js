@@ -104,7 +104,23 @@
       setTimeout(() => { const i = $(".ex-input", modal); if (i) { i.focus(); i.select(); } }, 30);
     });
   }
-  window.exModal = { prompt: openPrompt, confirm: openConfirm, form: openForm };
+  /* panel({title, html, okLabel, danger, check:{label, checked}}) -> Promise<{checked}|null>
+     html is trusted markup built by the caller (escape user text with exModal.esc) */
+  function openPanel({ title = "CONFIRM", html = "", okLabel = "OK", cancelLabel = "CANCEL", danger = false, check = null } = {}) {
+    return new Promise((resolve) => {
+      resolver = resolve;
+      $(".ex-modal__title", modal).textContent = title;
+      $(".ex-modal__body", modal).innerHTML = `<div class="ex-modal__rich">${html}</div>` + (check ? `
+        <label class="ex-check"><input type="checkbox" class="ex-check__cb" ${check.checked ? "checked" : ""}/> ${escHtml(check.label)}</label>` : "");
+      $(".ex-modal__ok", modal).textContent = okLabel;
+      $(".ex-modal__cancel", modal).textContent = cancelLabel;
+      $(".ex-modal__ok", modal).classList.toggle("is-danger", !!danger);
+      _submit = () => ({ checked: !!$(".ex-check__cb", modal)?.checked });
+      modal.classList.add("is-open");
+      setTimeout(() => $(".ex-modal__ok", modal).focus(), 30);
+    });
+  }
+  window.exModal = { prompt: openPrompt, confirm: openConfirm, form: openForm, panel: openPanel, esc: escHtml };
 
   /* =====================================================
      SHORTCUT SHEET
@@ -119,6 +135,21 @@
       ["F", "FIT VIEW · 全体表示"],
       ["SHIFT F", "FOCUS NODE · 選択を中央へ"],
       ["I", "INSPECTOR · 表示切替"],
+      ["C", "COMBINE · 選択中をトレイへ"],
+      ["B", "BRANCH · 選んだ枝だけ表示／全体へ戻る"],
+      ["ESC · BRANCH", "BRANCH · 全体へ戻る"],
+      ["L", "LINK · 選択中から別のノードへ関連線"],
+      ["M", "MINIMAP · 表示切替"],
+      ["→", "CATEGORY → NODE · マップの先頭へ入る"],
+      ["← →", "NODE · 親へ／最初の子へ（先頭で ← → カテゴリへ戻る）"],
+      ["↑ ↓", "NODE · 同じ階層の上／下へ（ノード未選択ならカテゴリ）"],
+      ["SHIFT CLICK NODE", "NODE · 2 つ目を選ぶ → L で関連線"],
+      ["SHIFT ↑ ↓", "CATEGORY · 選択を広げる（マップはそのまま）"],
+      ["SHIFT / CTRL CLICK", "CATEGORY · 範囲／1つずつ選択"],
+      ["DBL-CLICK CATEGORY", "CATEGORY · 名前を変える"],
+      ["CTRL ]  /  CTRL [", "CATEGORY · 選択を 1 つ上へ／下へ（AE と同じ）"],
+      ["CTRL SHIFT ]  /  [", "CATEGORY · 選択を一番上へ／一番下へ"],
+      ["CTRL I", "IMPORT .MD · 読み込み（確認あり）"],
     ]],
     ["SELECT & EDIT", [
       ["CLICK NODE", "SELECT · ノード選択"],
@@ -139,6 +170,7 @@
     ["MOUSE", [
       ["DRAG NODE", "MOVE · FREEで移動"],
       ["SHIFT DRAG", "RE-PARENT · 親を変更"],
+      ["DRAG → COMBINE", "COMBINE · トレイへ入れる"],
       ["ALT · RELEASE", "FREE DROP · スナップ解除"],
       ["DRAG BACKGROUND", "PAN · キャンバス移動"],
       ["WHEEL", "ZOOM · 拡大縮小"],
@@ -203,6 +235,7 @@
   }
 
   async function addCategoryFlow() {
+    if (window.blockReadonly && window.blockReadonly()) return;
     const r = await openForm({
       title: "NEW CATEGORY",
       okLabel: "CREATE",
@@ -214,7 +247,9 @@
     if (!r || !r.label || !r.label.trim()) return;
     const id = "cat_" + Math.random().toString(36).slice(2, 8);
     const cat = { id, label: r.label.trim().toUpperCase(), sub: (r.sub || "").trim().toUpperCase(), jp: "", custom: true };
-    window.CATEGORIES.push(cat);
+    window.pushHistory && window.pushHistory();
+    window.CATEGORIES.unshift(cat); // new categories go to the top
+    catSel = new Set([id]); catAnchor = catCursor = id;
     const root = { id: "n_root", title: cat.label, url: null, notes: [], children: [], level: 0, _open: true, x: 0, y: 0 };
     window.state.trees[id] = root;
     window.state.meta[id] = { count: 1, depth: 0 };
@@ -229,14 +264,135 @@
   }
 
   function moveCat(idx, dir) {
+    if (window.blockReadonly && window.blockReadonly()) return;
     const j = idx + dir;
     const C = window.CATEGORIES;
     if (j < 0 || j >= C.length) return;
+    window.pushHistory && window.pushHistory();
     [C[idx], C[j]] = [C[j], C[idx]];
     persistOrder();
     window.renderSidebar && window.renderSidebar();
     setTimeout(decorateSidebar, 10);
   }
+
+  /* ---------- category selection (Shift = range, Ctrl = toggle) + AE-style order keys ----------
+     Ctrl+]  up one        Ctrl+Shift+]  to the top
+     Ctrl+[  down one      Ctrl+Shift+[  to the bottom
+     ↑ ↓ open the previous / next map · Shift+↑↓ extend the selection (map stays) */
+  let catSel = new Set();
+  let catAnchor = null;
+  let catCursor = null;
+  const catIds = () => window.CATEGORIES.map(c => c.id);
+  function selectedCats() {
+    const ids = catIds();
+    const sel = [...catSel].filter(id => ids.includes(id));
+    return sel.length ? sel : [window.state.active];
+  }
+  function rangeSelect(fromId, toId) {
+    const ids = catIds();
+    let a = ids.indexOf(fromId), b = ids.indexOf(toId);
+    if (a < 0) a = b;
+    if (a > b) [a, b] = [b, a];
+    catSel = new Set(ids.slice(a, b + 1));
+  }
+  function paintCatSel() {
+    const multi = catSel.size > 1;
+    $$(".sb__list .cat").forEach(row => row.classList.toggle("is-cat-sel", multi && catSel.has(row.dataset.id)));
+  }
+  function reorderCats(how) {
+    if (window.blockReadonly && window.blockReadonly()) return;
+    const C = window.CATEGORIES;
+    const sel = new Set(selectedCats());
+    const before = C.map(c => c.id).join();
+    const picked = C.filter(c => sel.has(c.id));
+    const rest = C.filter(c => !sel.has(c.id));
+    let next = C.slice();
+    if (how === "top") next = [...picked, ...rest];
+    else if (how === "bottom") next = [...rest, ...picked];
+    else if (how === "up") {
+      for (let i = 1; i < next.length; i++) if (sel.has(next[i].id) && !sel.has(next[i - 1].id)) [next[i - 1], next[i]] = [next[i], next[i - 1]];
+    } else if (how === "down") {
+      for (let i = next.length - 2; i >= 0; i--) if (sel.has(next[i].id) && !sel.has(next[i + 1].id)) [next[i + 1], next[i]] = [next[i], next[i + 1]];
+    }
+    if (next.map(c => c.id).join() === before) return;
+    window.pushHistory && window.pushHistory();
+    C.length = 0; next.forEach(c => C.push(c));
+    persistOrder();
+    window.renderSidebar?.();
+    decorateSidebar();
+    $(`.sb__list .cat[data-id="${CSS.escape(picked[0].id)}"]`)?.scrollIntoView({ block: "nearest" });
+    window.toast?.("ORDER · " + { top: "TOP", bottom: "BOTTOM", up: "UP", down: "DOWN" }[how] + (picked.length > 1 ? " · " + picked.length : ""));
+  }
+  function openCat(id) {
+    if (!id || id === window.state.active) return;
+    window.state.active = id;
+    window.state.selected = null;
+    window.clearBranch?.({ fit: false });
+    window.renderAll?.();
+  }
+  function stepCat(dir, extend) {
+    const ids = catIds();
+    const from = ids.indexOf(extend ? (catCursor || window.state.active) : window.state.active);
+    const to = Math.max(0, Math.min(ids.length - 1, from + dir));
+    if (extend) {
+      if (!catAnchor || !ids.includes(catAnchor)) catAnchor = window.state.active;
+      catCursor = ids[to];
+      rangeSelect(catAnchor, catCursor);
+      paintCatSel();
+    } else {
+      catSel = new Set([ids[to]]); catAnchor = catCursor = ids[to];
+      openCat(ids[to]);
+    }
+    $(`.sb__list .cat[data-id="${CSS.escape(ids[to])}"]`)?.scrollIntoView({ block: "nearest" });
+  }
+  window.addEventListener("keydown", (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.target && (e.target.isContentEditable || /input|textarea|select/i.test(e.target.tagName))) return;
+    if (window.isKeysOpen?.() || $(".ex-modal.is-open")) return;
+    const meta = e.ctrlKey || e.metaKey;
+    // e.key, not e.code: JIS and US keyboards put [ ] on different keys
+    const k = e.key;
+    if (meta && !e.altKey && (k === "]" || k === "}" || k === "[" || k === "{")) {
+      e.preventDefault();
+      const up = k === "]" || k === "}";
+      reorderCats(e.shiftKey ? (up ? "top" : "bottom") : (up ? "up" : "down"));
+      return;
+    }
+    // with a node selected, ↑↓ belong to the map (app.js); the list takes them when nothing is selected
+    if (!meta && !e.altKey && (k === "ArrowUp" || k === "ArrowDown") && !(window.state.selected && !e.shiftKey)) {
+      e.preventDefault();
+      stepCat(k === "ArrowUp" ? -1 : 1, e.shiftKey);
+      return;
+    }
+    if (k === "Escape" && catSel.size > 1) { catSel = new Set([window.state.active]); paintCatSel(); }
+  });
+  // double-click a category: rename it (LABEL / SUB) — Ctrl+Z puts the old name back
+  async function renameCat(id) {
+    if (window.blockReadonly && window.blockReadonly()) return;
+    const cat = window.CATEGORIES.find(c => c.id === id);
+    if (!cat) return;
+    const r = await openForm({
+      title: "RENAME CATEGORY",
+      okLabel: "RENAME",
+      fields: [
+        { name: "label", label: "LABEL", value: cat.label },
+        { name: "sub", label: "SUB", value: cat.sub || "" },
+      ],
+    });
+    if (!r || !r.label || !r.label.trim()) return;
+    const label = r.label.trim().toUpperCase(), sub = (r.sub || "").trim().toUpperCase();
+    if (label === cat.label && sub === (cat.sub || "")) return;
+    window.pushHistory && window.pushHistory();
+    cat.label = label; cat.sub = sub;
+    if (cat.custom) persistCustoms(); else { cat.renamed = true; window.persistCatLabels?.(); }
+    window.renderSidebar?.();
+    decorateSidebar();
+    window.updateCrumbs?.();
+    window.toast?.("RENAMED · " + label);
+  }
+  window.reorderCats = reorderCats;
+  window.renameCat = renameCat;
+  window.getCatSelection = () => selectedCats();
 
   let catDrag = null;
   let catDragFrame = 0;
@@ -251,7 +407,8 @@
     const { list, row } = catDrag;
     catDrag.lastY = clientY;
     row.style.transform = `translateY(${clientY - catDrag.startY + list.scrollTop - catDrag.startScroll}px)`;
-    const others = $$(".cat", list).filter(item => item !== row);
+    // dragging a selected row carries the whole selection
+    const others = $$(".cat", list).filter(item => !catDrag.moving.has(item.dataset.id));
     catDrag.toIndex = others.reduce((n, item) => n + (clientY >= item.getBoundingClientRect().top + item.getBoundingClientRect().height / 2 ? 1 : 0), 0);
     const listRect = list.getBoundingClientRect();
     let lineY;
@@ -283,6 +440,7 @@
     cancelAnimationFrame(catDragFrame);
     catDragFrame = 0;
     drag.row.classList.remove("is-cat-dragging");
+    $$(".is-cat-moving", drag.list).forEach(item => item.classList.remove("is-cat-moving"));
     drag.row.style.transform = "";
     drag.list.classList.remove("is-cat-reordering");
     drag.line?.remove();
@@ -310,8 +468,9 @@
       if (document.body.classList.contains("is-readonly") || e.button !== 0) return;
       const fromIndex = categoryIndex(row);
       if (fromIndex < 0) return;
+      const moving = catSel.size > 1 && catSel.has(row.dataset.id) ? new Set(catSel) : new Set([row.dataset.id]);
       catDrag = {
-        list, row, fromIndex, toIndex: fromIndex, pointerId: e.pointerId,
+        list, row, fromIndex, toIndex: fromIndex, pointerId: e.pointerId, moving,
         startY: e.clientY, lastY: e.clientY, startScroll: list.scrollTop, started: false,
       };
       try { row.setPointerCapture(e.pointerId); } catch {}
@@ -323,6 +482,7 @@
       if (!catDrag.started) {
         catDrag.started = true;
         catDrag.row.classList.add("is-cat-dragging");
+        $$(".cat", list).forEach(item => { if (item !== catDrag.row && catDrag.moving.has(item.dataset.id)) item.classList.add("is-cat-moving"); });
         list.classList.add("is-cat-reordering");
         catDrag.line = document.createElement("div");
         catDrag.line.className = "cat-drop-line";
@@ -337,39 +497,71 @@
       e.preventDefault();
       suppressCatClick = true;
       setTimeout(() => { suppressCatClick = false; }, 0);
-      const { row, toIndex } = catDrag;
-      const id = row.dataset.id;
+      const { row, toIndex, moving } = catDrag;
       cleanCategoryDrag();
-      const fromIndex = window.CATEGORIES.findIndex(cat => cat.id === id);
-      if (fromIndex < 0 || fromIndex === toIndex) return;
-      const [cat] = window.CATEGORIES.splice(fromIndex, 1);
-      window.CATEGORIES.splice(toIndex, 0, cat);
+      const C = window.CATEGORIES;
+      const picked = C.filter(c => moving.has(c.id));
+      const rest = C.filter(c => !moving.has(c.id));
+      const next = [...rest.slice(0, toIndex), ...picked, ...rest.slice(toIndex)];
+      if (next.map(c => c.id).join() === C.map(c => c.id).join()) return;
+      window.pushHistory && window.pushHistory();
+      C.length = 0; next.forEach(c => C.push(c));
       persistOrder();
       window.renderSidebar?.();
       decorateSidebar();
       window.toast?.("ORDER · SAVED");
     });
+    list.addEventListener("dblclick", (e) => {
+      const row = e.target.closest(".cat");
+      if (!row || e.target.closest(".cat__ord")) return;
+      e.preventDefault();
+      renameCat(row.dataset.id);
+    });
     list.addEventListener("pointercancel", cancelCategoryDrag);
     list.addEventListener("lostpointercapture", () => { if (catDrag) cancelCategoryDrag(); });
     list.addEventListener("click", (e) => {
-      if (!suppressCatClick || !e.target.closest(".cat")) return;
-      suppressCatClick = false;
-      e.preventDefault();
-      e.stopImmediatePropagation();
+      const row = e.target.closest(".cat");
+      if (!row) return;
+      if (suppressCatClick) {
+        suppressCatClick = false;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+      }
+      const id = row.dataset.id;
+      // Shift = range, Ctrl/⌘ = add/remove — the open map stays as it is
+      if (e.shiftKey || e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (e.shiftKey) {
+          if (!catAnchor || !catIds().includes(catAnchor)) catAnchor = window.state.active;
+          rangeSelect(catAnchor, id);
+        } else {
+          if (catSel.size <= 1) catSel = new Set([window.state.active]);
+          catSel.has(id) ? catSel.delete(id) : catSel.add(id);
+          catAnchor = id;
+        }
+        catCursor = id;
+        paintCatSel();
+        return;
+      }
+      catSel = new Set([id]); catAnchor = catCursor = id;
     }, true);
   }
 
   async function delCustomCat(idx) {
+    if (window.blockReadonly && window.blockReadonly()) return;
     const C = window.CATEGORIES;
     const cat = C[idx];
     if (!cat || !cat.custom) return;
     const ok = await openConfirm({
       title: "DELETE CATEGORY",
-      message: `Category “${cat.label}” and its mind map will be removed.`,
+      message: `Category “${cat.label}” and its mind map will be removed. (Ctrl+Z で戻せます)`,
       okLabel: "DELETE",
       danger: true,
     });
     if (!ok) return;
+    window.pushHistory && window.pushHistory();
     C.splice(idx, 1);
     delete window.state.trees[cat.id];
     delete window.state.meta[cat.id];
@@ -379,6 +571,7 @@
     window.saveState && window.saveState();
     window.renderAll && window.renderAll();
     setTimeout(decorateSidebar, 30);
+    window.toast && window.toast("CATEGORY DELETED · CTRL+Z TO UNDO");
   }
 
   function decorateSidebar() {
@@ -415,6 +608,7 @@
       if (delBtn) delBtn.addEventListener("click", () => delCustomCat(categoryIndex(row)));
       row.appendChild(ord);
     });
+    paintCatSel();
   }
 
   function syncNoteBlocks(noteEl) {
@@ -606,6 +800,7 @@
   }
 
   function saveCurrentDefault() {
+    if (window.blockReadonly && window.blockReadonly()) return;
     if (!window.state) return;
     const cat = window.state.active;
     const tree = window.state.trees[cat];
@@ -616,6 +811,7 @@
     if (saveLayouts(layouts)) window.toast && window.toast("LAYOUT · SAVED · DEFAULT");
   }
   async function restoreDefault() {
+    if (window.blockReadonly && window.blockReadonly()) return;
     if (!window.state) return;
     const cat = window.state.active;
     const tree = window.state.trees[cat];
@@ -936,7 +1132,51 @@
     roObs.observe(document.body, { childList: true, subtree: true });
   }
 
+  /* =====================================================
+     INSPECTOR WIDTH — drag the left edge of the right column; double-click = back to 320px
+     ===================================================== */
+  const INSP_W_KEY = "tdr-mindmap-insp-w-v1";
+  const INSP_W_DEF = 320, INSP_W_MIN = 260;
+  const inspMax = () => Math.max(INSP_W_MIN, Math.min(760, Math.round(window.innerWidth * 0.55)));
+  function setInspWidth(w, save) {
+    const v = Math.max(INSP_W_MIN, Math.min(inspMax(), Math.round(w)));
+    document.querySelector(".shell")?.style.setProperty("--insp-w", v + "px");
+    if (save) { try { localStorage.setItem(INSP_W_KEY, String(v)); } catch {} }
+    return v;
+  }
+  function wireInspResize() {
+    const col = $(".rcol");
+    if (!col || col.querySelector(".rcol__grip")) return;
+    let saved = INSP_W_DEF;
+    try { saved = Number(localStorage.getItem(INSP_W_KEY)) || INSP_W_DEF; } catch {}
+    setInspWidth(saved, false);
+    const grip = document.createElement("div");
+    grip.className = "rcol__grip";
+    grip.title = "ドラッグで INSPECTOR の幅 · ダブルクリックで元の幅";
+    col.appendChild(grip);
+    let drag = null;
+    grip.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      drag = { sx: e.clientX, w: col.getBoundingClientRect().width };
+      grip.setPointerCapture(e.pointerId);
+      document.body.classList.add("is-insp-resizing");
+    });
+    grip.addEventListener("pointermove", (e) => { if (drag) setInspWidth(drag.w + (drag.sx - e.clientX), false); });
+    const end = () => {
+      if (!drag) return;
+      drag = null;
+      document.body.classList.remove("is-insp-resizing");
+      setInspWidth(col.getBoundingClientRect().width, true);
+    };
+    grip.addEventListener("pointerup", end);
+    grip.addEventListener("pointercancel", end);
+    grip.addEventListener("dblclick", () => setInspWidth(INSP_W_DEF, true));
+    window.addEventListener("resize", () => setInspWidth(col.getBoundingClientRect().width, false));
+  }
+
   function boot() {
+    wireInspResize();
     applyReadonly();
     const obs = new MutationObserver(() => {
       clearTimeout(boot._t);

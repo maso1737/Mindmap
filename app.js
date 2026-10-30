@@ -23,14 +23,28 @@ const STORE_KEY = "tdr-mindmap-v4";
 const CUSTOM_CATS_KEY = "tdr-mindmap-custom-cats-v1";
 const CAT_ORDER_KEY = "tdr-mindmap-cat-order-v1";
 const DEFAULT_LAYOUTS_KEY = "tdr-mindmap-default-layouts-v1";
+// new names for built-in / private maps (added categories keep theirs in CUSTOM_CATS_KEY)
+const CAT_LABELS_KEY = "tdr-mindmap-cat-labels-v1";
+function applyCatLabels() {
+  try {
+    const o = JSON.parse(localStorage.getItem(CAT_LABELS_KEY) || "{}");
+    CATEGORIES.forEach(c => {
+      if (c.custom || !o[c.id]) return;
+      c.label = o[c.id].label || c.label;
+      c.sub = o[c.id].sub ?? c.sub;
+      c.renamed = true;
+    });
+  } catch {}
+}
+function persistCatLabels() {
+  const o = {};
+  CATEGORIES.forEach(c => { if (!c.custom && c.renamed) o[c.id] = { label: c.label, sub: c.sub }; });
+  return safeSetItem(CAT_LABELS_KEY, JSON.stringify(o));
+}
 
 /* Load custom cats + ordering at startup */
-(function bootstrapCats() {
+function applyCatOrder() {
   try {
-    const customs = JSON.parse(localStorage.getItem(CUSTOM_CATS_KEY) || "[]");
-    customs.forEach(c => {
-      if (!CATEGORIES.find(x => x.id === c.id)) CATEGORIES.push(c);
-    });
     const order = JSON.parse(localStorage.getItem(CAT_ORDER_KEY) || "null");
     if (Array.isArray(order)) {
       const map = new Map(CATEGORIES.map(c => [c.id, c]));
@@ -41,7 +55,37 @@ const DEFAULT_LAYOUTS_KEY = "tdr-mindmap-default-layouts-v1";
       reordered.forEach(c => CATEGORIES.push(c));
     }
   } catch {}
+}
+(function bootstrapCats() {
+  try {
+    const customs = JSON.parse(localStorage.getItem(CUSTOM_CATS_KEY) || "[]");
+    customs.forEach(c => {
+      if (!CATEGORIES.find(x => x.id === c.id)) CATEGORIES.push(c);
+    });
+  } catch {}
+  applyCatOrder();
+  applyCatLabels();
 })();
+
+/* Private maps: data/private/index.json exists only on this PC (never in the public repo),
+   so the public site shows no trace of them — not even their names. */
+async function loadPrivateCats() {
+  let list;
+  try {
+    const res = await fetch("data/private/index.json", { cache: "no-store" });
+    if (!res.ok) return 0;
+    list = await res.json();
+  } catch { return 0; }
+  if (!Array.isArray(list)) return 0;
+  let added = 0;
+  list.forEach(c => {
+    if (!c || !/^[a-z0-9-]+$/.test(c.id || "") || !c.file || CATEGORIES.find(x => x.id === c.id)) return;
+    CATEGORIES.push({ id: c.id, file: c.file, label: c.label || c.id.toUpperCase(), sub: c.sub || "", jp: c.jp || "", private: true });
+    added++;
+  });
+  if (added) { applyCatOrder(); applyCatLabels(); }
+  return added;
+}
 
 /* ---------- markdown parsing ---------- */
 function parseMarkdown(md) {
@@ -86,7 +130,7 @@ function parseMarkdown(md) {
     if (b) {
       const text = (b[2] || b[1]).trim();
       const cur = stack[stack.length - 1];
-      if (cur && cur.notes.length < 3) cur.notes.push(stripLinks(text));
+      if (cur && cur.notes.length < 12) cur.notes.push(stripLinks(text));
     }
   }
   if (!root) root = { id: "n_root", title: "ROOT", url: null, notes: [], children: [], level: 0, _open: true };
@@ -151,9 +195,18 @@ function fmtCoord(x, y) {
   const sign = (n) => (n >= 0 ? "+" : "-") + Math.abs(Math.round(n)).toString().padStart(4, "0");
   return `[ X${sign(x)} · Y${sign(y)} ]`;
 }
+const OBSIDIAN_VAULT = "Projects";
+// "[[Note]]" / "[[folder/Note]]" → obsidian://open?vault=Projects&file=folder%2FNote ; anything else unchanged
+function normalizeLink(value) {
+  const v = (value || "").trim();
+  const m = v.match(/^\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]$/);
+  if (!m) return v;
+  return "obsidian://open?vault=" + encodeURIComponent(OBSIDIAN_VAULT) + "&file=" + encodeURIComponent(m[1].trim().replace(/\.md$/i, ""));
+}
 function shortUrl(u) {
   try {
     const url = new URL(u);
+    if (url.protocol === "obsidian:") return "obsidian · " + (url.searchParams.get("file") || "").split("/").pop().slice(0, 24);
     return url.host.replace(/^www\./, "") + (url.pathname === "/" ? "" : url.pathname.slice(0, 24));
   } catch { return u.slice(0, 28); }
 }
@@ -195,6 +248,116 @@ function posOf(n) {
   return { x: n.x, y: n.y };
 }
 
+/* ---------- BRANCH: show one node and its descendants only (view filter, never saved) ---------- */
+let branchFocus = null; // { map, id }
+function viewRoot(root) {
+  if (!branchFocus || !root) return root;
+  const n = branchFocus.map === state.active ? findNodeById(root, branchFocus.id) : null;
+  if (!n || n === root) { branchFocus = null; updateBranchUI(); return root; }
+  return n;
+}
+function isInBranch(id) {
+  const root = state.trees[state.active];
+  const top = viewRoot(root);
+  if (top === root) return true;
+  return top.id === id || !!findNodeById(top, id);
+}
+function setBranch(id) {
+  const root = state.trees[state.active];
+  const n = root && id ? findNodeById(root, id) : null;
+  if (!n) { toast("BRANCH · SELECT A NODE"); return false; }
+  if (n === root) { clearBranch(); toast("BRANCH · ROOT = WHOLE MAP"); return false; }
+  if (n._open === false) n._open = true;
+  branchFocus = { map: state.active, id: n.id };
+  renderStage();
+  updateBranchUI();
+  requestAnimationFrame(() => fitView());
+  toast("BRANCH · " + (n.title || "NODE").slice(0, 24) + " · ESC / B TO EXIT");
+  return true;
+}
+function clearBranch({ fit = true } = {}) {
+  if (!branchFocus) return false;
+  const id = branchFocus.id;
+  branchFocus = null;
+  renderStage();
+  updateBranchUI();
+  if (fit) requestAnimationFrame(() => { fitView(); if (state.selected === id) focusNode(id); });
+  return true;
+}
+// ← parent / → first child (opens a folded node); stays inside BRANCH
+function stepNode(dir) {
+  const root = state.trees[state.active];
+  const n = root && findNodeById(root, state.selected);
+  if (!n) return;
+  let next = null;
+  if (dir === "parent") {
+    if (n === viewRoot(root)) { clearSelection(); return; } // top of the map → back to the category list
+    next = findParent(root, n.id);
+  } else if (dir === "child") {
+    if (!(n.children || []).length) return;
+    if (n._open === false) { n._open = true; renderStage(); }
+    next = n.children[0];
+  } else {
+    // same depth, in drawing order (siblings first, then the next branch's node at that depth)
+    const top = viewRoot(root);
+    const row = [];
+    const depth = computeLevel(n, root);
+    (function w(x) {
+      if (computeLevel(x, root) === depth) row.push(x);
+      if (x._open !== false) (x.children || []).forEach(w);
+    })(top);
+    const i = row.indexOf(n);
+    next = row[i + (dir === "next" ? 1 : -1)] || null;
+  }
+  if (!next) return;
+  selectNode(next);
+  const card = $(`.node[data-id="${next.id}"]`), stg = $(".stg");
+  if (card && stg) {
+    const r = card.getBoundingClientRect(), s = stg.getBoundingClientRect();
+    if (r.left < s.left + 20 || r.right > s.right - 20 || r.top < s.top + 20 || r.bottom > s.bottom - 20) focusNode(next.id);
+  }
+}
+function clearSelection() {
+  state.selected = null;
+  linkPartner = null;
+  $$(".node.is-selected, .node.is-partner").forEach(x => x.classList.remove("is-selected", "is-partner"));
+  markSelectedEdges(null);
+  updateCrumbs();
+  renderInspector();
+}
+// Shift+click a second node: the partner for L (relation line)
+let linkPartner = null;
+function setLinkPartner(id) {
+  linkPartner = id;
+  $$(".node.is-partner").forEach(x => x.classList.remove("is-partner"));
+  if (id) $(`.node[data-id="${id}"]`)?.classList.add("is-partner");
+}
+function toggleBranch() {
+  if (branchFocus && branchFocus.map === state.active) return clearBranch();
+  return setBranch(state.selected);
+}
+function updateBranchUI() {
+  const bar = $(".branch-bar");
+  const btn = $(".zoom .zbranch");
+  const root = state.trees[state.active];
+  const n = branchFocus && branchFocus.map === state.active && root ? findNodeById(root, branchFocus.id) : null;
+  btn?.classList.toggle("is-on", !!n);
+  $(".stg")?.classList.toggle("is-branch", !!n);
+  if (!bar) return;
+  bar.hidden = !n;
+  if (!n) return;
+  const path = [];
+  let p = findParent(root, n.id);
+  while (p) { path.unshift(p.title); p = findParent(root, p.id); }
+  bar.replaceChildren(
+    el("span", { class: "branch-bar__tag" }, "BRANCH"),
+    el("span", { class: "branch-bar__path" }, path.join(" › ") + (path.length ? " › " : "")),
+    el("b", { class: "branch-bar__title" }, n.title || "NODE"),
+    el("button", { type: "button", class: "branch-bar__x", title: "この枝を Markdown でコピー", onclick: () => copyBranchMD() }, "COPY .MD"),
+    el("button", { type: "button", class: "branch-bar__x", onclick: () => clearBranch() }, "× WHOLE MAP"),
+  );
+}
+
 /* =========================================================
    PERSIST
    ========================================================= */
@@ -224,7 +387,16 @@ function setSaveStatus(ok, key, err) {
     toast("SAVE FAILED · " + name);
   }
 }
+/* VIEW ONLY (?readonly): entry points refuse edits, and map data never reaches storage */
+const COMBINE_KEY = "tdr-mindmap-combine-v1";
+function isReadonly() { return document.body.classList.contains("is-readonly"); }
+function blockReadonly() {
+  if (!isReadonly()) return false;
+  toast("VIEW ONLY · EDITING DISABLED");
+  return true;
+}
 function safeSetItem(key, value) {
+  if (isReadonly() && key !== COMBINE_KEY) return true;
   try {
     localStorage.setItem(key, value);
     setSaveStatus(true);
@@ -260,12 +432,23 @@ let inspectorCancelBlur = false;
 let inspectorRenderingLocked = false;
 const editNoteSlots = new Map();
 function snapshot() {
-  return JSON.stringify({ trees: state.trees, views: state.views });
+  return JSON.stringify({ trees: state.trees, views: state.views, cats: CATEGORIES.map(c => ({ ...c })) });
 }
 function restoreSnap(s) {
   const o = JSON.parse(s);
   state.trees = o.trees;
   state.views = o.views;
+  if (Array.isArray(o.cats)) {
+    CATEGORIES.length = 0;
+    o.cats.forEach(c => CATEGORIES.push(c));
+    safeSetItem(CUSTOM_CATS_KEY, JSON.stringify(CATEGORIES.filter(c => c.custom)));
+    safeSetItem(CAT_ORDER_KEY, JSON.stringify(CATEGORIES.map(c => c.id)));
+    persistCatLabels();
+    if (!CATEGORIES.find(c => c.id === state.active)) { state.active = CATEGORIES[0]?.id; state.selected = null; }
+  }
+  Object.keys(state.trees).forEach(id => {
+    state.meta[id] = { count: countNodes(state.trees[id]), depth: maxDepth(state.trees[id]) };
+  });
 }
 function pushHistory() {
   history.past.push(snapshot());
@@ -363,21 +546,23 @@ function beginEdit(nodeId, field = "title", noteIdx = 0) {
   return true;
 }
 function undo() {
+  if (blockReadonly()) return;
   if (!history.past.length) return;
   const cur = snapshot();
   const prev = history.past.pop();
   history.future.push(cur);
   restoreSnap(prev);
-  renderStage(); updateCrumbs(); saveState();
+  renderStage(); renderSidebar(); updateCrumbs(); saveState();
   toast("UNDO");
 }
 function redo() {
+  if (blockReadonly()) return;
   if (!history.future.length) return;
   const cur = snapshot();
   const nxt = history.future.pop();
   history.past.push(cur);
   restoreSnap(nxt);
-  renderStage(); updateCrumbs(); saveState();
+  renderStage(); renderSidebar(); updateCrumbs(); saveState();
   toast("REDO");
 }
 
@@ -385,6 +570,7 @@ function redo() {
    LOAD MAPS
    ========================================================= */
 async function loadAllMaps() {
+  await loadPrivateCats();
   const stored = loadStateRaw();
   // Drop any orphaned trees from old/removed categories
   if (stored && stored.trees) {
@@ -437,12 +623,12 @@ function renderSidebar() {
     const btn = el("button", {
       class: "cat" + (cat.id === state.active ? " is-active" : ""),
       "data-id": cat.id,
-      onclick: () => { state.active = cat.id; state.selected = null; renderAll(); },
+      onclick: () => { state.active = cat.id; state.selected = null; branchFocus = null; updateBranchUI(); renderAll(); },
     },
       el("div", { class: "cat__idx" }, String(i).padStart(2, "0")),
       el("div", { class: "cat__body" },
         el("div", { class: "cat__t" }, cat.label),
-        el("div", { class: "cat__sub" }, cat.sub),
+        el("div", { class: "cat__sub" }, cat.sub, cat.private ? el("span", { class: "cat__private", title: "このPCだけ・公開版には出ない" }, "PRIVATE") : null),
       ),
       el("div", { class: "cat__meta" },
         el("span", { class: "n" }, "N=" + meta.count),
@@ -486,6 +672,7 @@ function updateAllEdges() {
     const midX = (from.x + to.x) / 2;
     path.setAttribute("d", `M ${from.x} ${from.y} L ${midX} ${from.y} L ${midX} ${to.y} L ${to.x} ${to.y}`);
   });
+  window.Relations?.update(svg, root);
 }
 function recomputeTreeLayout() {
   if (!isTreeMode()) return;
@@ -544,7 +731,7 @@ function recomputeTreeLayout() {
     return { points, top, bottom };
   }
 
-  const block = makeBlock(root);
+  const block = makeBlock(viewRoot(root));
   const widths = [];
   let top = Infinity, bottom = -Infinity;
   block.points.forEach(point => {
@@ -590,7 +777,9 @@ function setLayoutMode(mode) {
   return true;
 }
 function bakeTreeToFree() {
+  if (blockReadonly()) return;
   if (!isTreeMode() || !treePos.size) return;
+  if (viewRoot(state.trees[state.active]) !== state.trees[state.active]) { toast("BRANCH · EXIT BEFORE TREE → FREE"); return; }
   pushHistory();
   const root = state.trees[state.active];
   treePos.forEach((pos, id) => {
@@ -628,12 +817,12 @@ function renderStage() {
   svg.setAttribute("viewBox", "-3000 -3000 9000 9000");
   vp.appendChild(svg);
 
-  // visible flat (skip children of collapsed nodes)
+  // visible flat (skip children of collapsed nodes; BRANCH starts below the root)
   const flat = [];
   (function walk(n, parent) {
     flat.push({ n, parent });
     if (n._open !== false) (n.children || []).forEach(c => walk(c, n));
-  })(root, null);
+  })(viewRoot(root), null);
 
   // edges
   flat.forEach(({ n, parent }) => {
@@ -650,10 +839,11 @@ function renderStage() {
     path.setAttribute("data-edge-to", n.id);
     svg.appendChild(path);
   });
+  window.Relations?.draw(svg, root, new Set(flat.map(f => f.n.id)));
 
   // nodes
   flat.forEach(({ n, parent }, i) => {
-    const isRoot = !parent;
+    const isRoot = n === root;
     const lvl = computeLevel(n, root);
     const isMin = state.nodeStyle === "minimal";
     const pos = posOf(n);
@@ -755,7 +945,6 @@ function renderStage() {
     node.appendChild(el("div", { class: "node__coord" }, fmtCoord(pos.x, pos.y)));
 
     const actions = el("div", { class: "node__actions" },
-      el("button", { onclick: (e) => { e.stopPropagation(); beginEdit(n.id); } }, "EDIT"),
       el("button", { onclick: (e) => { e.stopPropagation(); editURL(n); } }, "URL"),
       el("button", { onclick: (e) => { e.stopPropagation(); pickThumb(n); } }, "IMG"),
       el("button", { onclick: (e) => { e.stopPropagation(); addChild(n); } }, "+ CHILD"),
@@ -769,12 +958,20 @@ function renderStage() {
       if (ev.target.closest(".node__tog")) return;
       if (ev.target.closest(".node__actions")) return;
       ev.stopPropagation();
+      if (ev.shiftKey && state.selected && state.selected !== n.id) {
+        setLinkPartner(linkPartner === n.id ? null : n.id);
+        if (linkPartner) toast("2 NODES · L = LINK");
+        return;
+      }
+      setLinkPartner(null);
       selectNode(n);
     });
     node.addEventListener("dblclick", (ev) => {
-      const note = ev.target.closest(".node__notes .n");
-      const isTitle = ev.target.closest(".node__title");
-      if (!note && !isTitle) return;
+      // pointer capture (node drag) reports the card itself as the target, so look at what is under the cursor;
+      // a double-click anywhere on the card edits the title unless it lands on a note
+      const hit = document.elementFromPoint(ev.clientX, ev.clientY) || ev.target;
+      if (hit.closest(".node__actions, .node__tog, .node__url a")) return;
+      const note = hit.closest(".node__notes .n");
       ev.preventDefault();
       ev.stopPropagation();
       beginEdit(n.id, note ? "note" : "title", note ? Number(note.dataset.noteIdx) : 0);
@@ -847,7 +1044,7 @@ function padIdx(i, lvl) { const a = "0123456789ABCDEF"; return String(lvl) + a[i
 function isWebURL(value) {
   try {
     const u = new URL(value);
-    return u.protocol === "http:" || u.protocol === "https:";
+    return u.protocol === "http:" || u.protocol === "https:" || u.protocol === "obsidian:";
   } catch { return false; }
 }
 function pushInspectorSnap(snap) {
@@ -870,7 +1067,7 @@ function commitInspectorField(target) {
     target.value = value;
     if (changed) n.title = value;
   } else if (edit.field === "url") {
-    const value = target.value.trim() || null;
+    const value = normalizeLink(target.value) || null;
     changed = value !== (n.url || null);
     target.value = value || "";
     if (changed) n.url = value;
@@ -976,6 +1173,12 @@ function renderInspector(force = false) {
     note.readOnly = ro;
     bindInspectorField(note, "note", i);
     line.appendChild(note);
+    // a note holding a Windows folder path gets a copy button (browsers can't open folders; paste it into Explorer)
+    const path = (value || "").match(/[A-Za-z]:\\[^\n]*/);
+    if (path) line.appendChild(el("button", {
+      class: "insp__copy-path", type: "button", title: "フォルダのアドレスをコピー（エクスプローラーに貼る）",
+      onclick: () => copyText(path[0].trim(), "PATH · COPIED"),
+    }, "COPY"));
     line.appendChild(el("button", {
       class: "insp__remove-note insp__action", type: "button", title: "Remove note",
       onclick: () => {
@@ -1015,8 +1218,10 @@ function renderInspector(force = false) {
 
   const imageRow = makeInspectorRow("IMAGE");
   if (n.thumb) {
-    const img = el("img", { class: "insp__thumb", alt: "" });
+    const img = el("img", { class: "insp__thumb", alt: "", title: "ホバーで大きく" });
     img.src = n.thumb;
+    img.addEventListener("mouseenter", () => showImageZoom(n.thumb));
+    img.addEventListener("mouseleave", hideImageZoom);
     imageRow.appendChild(img);
   }
   imageRow.appendChild(el("div", { class: "insp__actions" },
@@ -1048,7 +1253,19 @@ function renderInspector(force = false) {
   if (!(n.children || []).length) children.appendChild(el("div", { class: "insp__none" }, "—"));
   childRow.appendChild(children);
   panel.appendChild(childRow);
+  window.Relations?.inspector(panel, n, ro);
+  window.Links?.inspector(panel, n);
 }
+let imageZoomEl = null;
+function showImageZoom(src) {
+  if (!imageZoomEl) {
+    imageZoomEl = el("div", { class: "img-zoom" }, el("img", { alt: "" }));
+    document.body.appendChild(imageZoomEl);
+  }
+  imageZoomEl.firstChild.src = src;
+  imageZoomEl.classList.add("show");
+}
+function hideImageZoom() { imageZoomEl?.classList.remove("show"); }
 function applyInspectorState() {
   const open = state.inspector !== false;
   $(".shell")?.classList.toggle("no-insp", !open);
@@ -1323,6 +1540,7 @@ function jumpToSearchResult(result) {
   const root = state.trees[state.active];
   const node = root && findNodeById(root, result.id);
   if (!node) { closeSearch(); return; }
+  if (!isInBranch(node.id)) { branchFocus = null; updateBranchUI(); }
   openCollapsedAncestors(root, node.id, readonly);
   renderStage();
   selectNode(node);
@@ -1362,14 +1580,16 @@ function moveActiveDrag(e) {
   const dxScreen = e.clientX - dragState.sx;
   const dyScreen = e.clientY - dragState.sy;
   if (!dragState.started && Math.hypot(dxScreen, dyScreen) < 4) return;
+  dragState.moved = true;
+  window.Combine?.dragMove(e, dragState.node, dragState.treeMode && (!e.shiftKey || dragState.ro));
   if (dragState.treeMode) {
     dragState.lastX = e.clientX;
     dragState.lastY = e.clientY;
     dragState.lastShift = e.shiftKey;
-    if (!e.shiftKey) {
+    if (!e.shiftKey || dragState.ro) {
       if (!dragState.warned) {
         dragState.warned = true;
-        toast("TREE · DRAG IS OFF — PRESS T FOR FREE");
+        toast(dragState.ro ? "VIEW ONLY · DRAG → COMBINE" : "TREE · DRAG → COMBINE · SHIFT = RE-PARENT · T = FREE");
       }
       clearDropTarget();
       return;
@@ -1430,9 +1650,15 @@ function endActiveDrag(e, reason = "release") {
     }
     return;
   }
+  // dropped on the COMBINE tray: add it and put the node back where it was
+  if (dragState.moved && window.Combine) {
+    const dx = e ? e.clientX : dragState.lastX;
+    const dy = e ? e.clientY : dragState.lastY;
+    if (window.Combine.dragEnd(e, dragState.node, dx, dy, reason)) reason = "escape";
+  }
   const { node, el: nodeEl, ox, oy, started, future } = dragState;
   const restore = reason === "escape" || reason === "cancel";
-  const allowReparent = reason === "release" && !!(e && e.shiftKey);
+  const allowReparent = reason === "release" && !!(e && e.shiftKey) && !dragState.ro;
   if (dragState.treeMode) {
     nodeEl.classList.remove("dragging");
     clearDropTarget();
@@ -1484,6 +1710,7 @@ function attachStagePanZoom() {
     if (e.target.closest(".zoom")) return;
     if (e.target.closest(".hint")) return;
     if (e.target.closest(".stg__axis")) return;
+    if (e.target.closest(".branch-bar, .mini")) return;
     if (e.button !== 0) return;
     e.preventDefault();
     const focused = document.activeElement;
@@ -1548,7 +1775,7 @@ function attachNodeDrag() {
       kind: "node", node: n, el: elNode, started: false,
       sx: e.clientX, sy: e.clientY, ox: n.x, oy: n.y,
       lastX: e.clientX, lastY: e.clientY, lastAlt: false, lastShift: false,
-      treeMode: isTreeMode(), warned: false,
+      treeMode: isTreeMode() || isReadonly(), ro: isReadonly(), warned: false,
     });
     capturePointer(elNode, e);
     e.stopPropagation();
@@ -1621,6 +1848,7 @@ function isDescendant(a, b) {
   return false;
 }
 function reparent(node, newParent) {
+  if (blockReadonly()) return;
   const root = state.trees[state.active];
   if (node === root || newParent === node) return;
   if (isDescendant(node, newParent)) { toast("CIRCULAR · BLOCKED"); return; }
@@ -1645,6 +1873,7 @@ function updateEdgesForNode(n) {
     const midX = (from.x + to.x) / 2;
     p.setAttribute("d", `M ${from.x} ${from.y} L ${midX} ${from.y} L ${midX} ${to.y} L ${to.x} ${to.y}`);
   });
+  window.Relations?.update(svg, root, n.id);
 }
 
 /* =========================================================
@@ -1666,6 +1895,7 @@ function addChild(parent) {
   beginEdit(id);
 }
 function delNode(n) {
+  if (blockReadonly()) return;
   const root = state.trees[state.active];
   if (n === root) { toast("CANNOT DELETE ROOT"); return; }
   const proceed = () => {
@@ -1692,11 +1922,12 @@ function delNode(n) {
   proceed();
 }
 function editURL(n) {
+  if (blockReadonly()) return;
   if (window.exModal && window.exModal.prompt) {
     window.exModal.prompt({ title: "URL", label: "URL", value: n.url || "https://" }).then((u) => {
       if (u === null) return;
       pushHistory();
-      n.url = u.trim() || null;
+      n.url = normalizeLink(u) || null;
       renderStage(); saveState();
     });
     return;
@@ -1704,10 +1935,11 @@ function editURL(n) {
   const u = prompt("URL:", n.url || "https://");
   if (u === null) return;
   pushHistory();
-  n.url = u.trim() || null;
+  n.url = normalizeLink(u) || null;
   renderStage(); saveState();
 }
 function pickThumb(n) {
+  if (blockReadonly()) return;
   const inp = document.createElement("input");
   inp.type = "file"; inp.accept = "image/*";
   inp.onchange = async () => {
@@ -1862,13 +2094,69 @@ function closeTweaks() {
 /* =========================================================
    IMPORT / EXPORT
    ========================================================= */
+function fileStamp(d = new Date()) {
+  const p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_T${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+}
+// "DNA · CROSS" → "DNA-CROSS" ; keeps Japanese, drops characters a file name can't hold
+function fileLabel(text) {
+  return String(text || "map").replace(/[\\/:*?"<>|]+/g, "").replace(/[\s·・]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "map";
+}
+function catLabel(id = state.active) { return CATEGORIES.find(c => c.id === id)?.label || id; }
+// one map with everything (layout, images, relations, ids) + its category, so another browser can add it
 function exportJSON() {
-  const out = JSON.stringify({ version: 1, trees: state.trees }, null, 2);
-  download(out, "mindmap-" + Date.now() + ".json", "application/json");
-  toast("EXPORTED · JSON");
+  const id = state.active;
+  const cat = CATEGORIES.find(c => c.id === id);
+  const out = JSON.stringify({ version: 2, trees: { [id]: state.trees[id] }, cats: cat ? [{ ...cat }] : [] }, null, 2);
+  download(out, "mindmap-" + fileLabel(catLabel(id)) + "_" + fileStamp() + ".json", "application/json");
+  toast("EXPORTED · JSON · " + catLabel(id));
+}
+function branchMarkdown() {
+  const full = state.trees[state.active];
+  const root = viewRoot(full);
+  let out = "";
+  function walk(n, lvl) {
+    const hashes = "#".repeat(Math.min(6, lvl + 1));
+    const ttl = n.url ? `[${n.title}](${n.url})` : n.title;
+    out += `${hashes} ${ttl}\n`;
+    (n.notes || []).forEach(t => out += `- ${t}\n`);
+    if (lvl === 0) out += "\n";
+    (n.children || []).forEach(c => walk(c, lvl + 1));
+  }
+  walk(root, 0);
+  return out;
+}
+async function copyText(text, okMsg = "COPIED") {
+  try { await navigator.clipboard.writeText(text); toast(okMsg); return true; }
+  catch {
+    const ta = el("textarea", { style: "position:fixed;left:-9999px;top:0" });
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    let ok = false; try { ok = document.execCommand("copy"); } catch {}
+    ta.remove();
+    toast(ok ? okMsg : "COPY FAILED");
+    return ok;
+  }
+}
+async function copyBranchMD() {
+  const text = branchMarkdown();
+  try { await navigator.clipboard.writeText(text); toast("BRANCH · MARKDOWN COPIED"); return true; }
+  catch {
+    const ta = el("textarea", { style: "position:fixed;left:-9999px;top:0" });
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    let ok = false; try { ok = document.execCommand("copy"); } catch {}
+    ta.remove();
+    toast(ok ? "BRANCH · MARKDOWN COPIED" : "COPY FAILED · USE EXPORT.MD");
+    return ok;
+  }
 }
 function exportMD() {
   const root = state.trees[state.active];
+  if (viewRoot(root) !== root) {
+    const top = viewRoot(root);
+    download(branchMarkdown(), "mindmap-" + fileLabel(catLabel()) + "_branch-" + fileLabel(top.title) + "_" + fileStamp() + ".md", "text/markdown");
+    toast("EXPORTED · BRANCH MARKDOWN");
+    return;
+  }
   let out = "";
   function walk(n, lvl) {
     if (lvl > 0) {
@@ -1883,7 +2171,7 @@ function exportMD() {
     (n.children || []).forEach(c => walk(c, lvl + 1));
   }
   walk(root, 0);
-  download(out, state.active + "-" + Date.now() + ".md", "text/markdown");
+  download(out, "mindmap-" + fileLabel(catLabel()) + "_" + fileStamp() + ".md", "text/markdown");
   toast("EXPORTED · MARKDOWN");
 }
 function download(content, name, type) {
@@ -1982,6 +2270,7 @@ function renderAll({ save = true } = {}) {
 async function init() {
   await loadAllMaps();
   renderAll();
+  setTimeout(() => window.dispatchEvent(new Event("mindmap:ready")), 0);
   attachStagePanZoom();
   attachNodeDrag();
 
@@ -1997,8 +2286,10 @@ async function init() {
   $("#btn-insp").addEventListener("click", toggleInspector);
   $("#btn-export").addEventListener("click", exportJSON);
   $("#btn-export-md").addEventListener("click", exportMD);
-  $("#btn-import").addEventListener("click", importJSON);
-  $("#btn-import-md").addEventListener("click", importMD);
+  $("#btn-import").addEventListener("click", () => window.Safety ? window.Safety.importJSON() : importJSON());
+  $("#btn-import-md").addEventListener("click", () => window.Safety ? window.Safety.importMD() : importMD());
+  $("#btn-backup")?.addEventListener("click", () => window.Safety?.backupAll());
+  $("#btn-reload-md")?.addEventListener("click", () => window.Safety?.reloadFromFile());
   // FILE menu: toggle on its button, close after a pick, on outside press or Esc
   const fileMenu = $(".hd__menu");
   const setFileMenu = (open) => {
@@ -2014,6 +2305,7 @@ async function init() {
   $(".zoom .zin").addEventListener("click", () => { const v=getView(); v.k=Math.min(2.5,v.k*1.15); applyTransform(true); saveState(); updateCrumbs(); });
   $(".zoom .zout").addEventListener("click", () => { const v=getView(); v.k=Math.max(0.25,v.k/1.15); applyTransform(true); saveState(); updateCrumbs(); });
   $(".zoom .zfit").addEventListener("click", () => fitView());
+  $(".zoom .zbranch").addEventListener("click", () => toggleBranch());
   $(".zoom .zfocus").addEventListener("click", () => {
     if (!state.selected) { toast("FOCUS · SELECT A NODE"); return; }
     focusNode(state.selected);
@@ -2070,6 +2362,21 @@ async function init() {
       else focusNode(state.selected);
     }
     else if (!meta && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "i") { e.preventDefault(); toggleInspector(); }
+    else if (!meta && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "b") { e.preventDefault(); toggleBranch(); }
+    else if (meta && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "i") { e.preventDefault(); window.Safety ? window.Safety.importMD() : importMD(); }
+    // keyboard zones: no node selected = the category list (↑↓ maps, → into the map);
+    // a node selected = the map (← parent / back to the list at the top, → first child, ↑↓ same level)
+    else if (!meta && !e.altKey && !e.shiftKey && e.key === "ArrowRight") {
+      e.preventDefault();
+      if (state.selected) stepNode("child");
+      else { const top = viewRoot(state.trees[state.active]); if (top) { selectNode(top); focusNode(top.id); } }
+    }
+    else if (!meta && !e.altKey && !e.shiftKey && e.key === "ArrowLeft" && state.selected) {
+      e.preventDefault(); stepNode("parent");
+    }
+    else if (!meta && !e.altKey && !e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && state.selected) {
+      e.preventDefault(); stepNode(e.key === "ArrowUp" ? "prev" : "next");
+    }
     else if (!meta && !e.altKey && !e.shiftKey && (e.key === "Enter" || e.key === "F2") && state.selected) {
       e.preventDefault(); beginEdit(state.selected);
     }
@@ -2078,7 +2385,11 @@ async function init() {
       const n = findNodeById(state.trees[state.active], state.selected);
       if (n) addChild(n);
     }
+    else if (!meta && !e.altKey && !e.shiftKey && e.key === "Escape" && branchFocus) {
+      e.preventDefault(); clearBranch();
+    }
     else if (!meta && !e.altKey && !e.shiftKey && e.key === "Escape") {
+      setLinkPartner(null);
       state.selected = null;
       $$(".node.is-selected").forEach(x => x.classList.remove("is-selected"));
       markSelectedEdges(null);
@@ -2110,9 +2421,28 @@ window.saveState = saveState;
 window.safeSetItem = safeSetItem;
 window.toast = toast;
 window.findNodeById = findNodeById;
+window.blockReadonly = blockReadonly;
+window.countNodes = countNodes;
+window.maxDepth = maxDepth;
+window.parseMarkdown = parseMarkdown;
+window.layoutTree = layoutTree;
+window.download = download;
 window.getView = getView;
 window.fitView = fitView;
 window.focusNode = focusNode;
+window.setBranch = setBranch;
+window.jumpToNode = (cat, id) => jumpToSearchResult({ cat, id });
+window.isInBranch = isInBranch;
+window.branchMarkdown = branchMarkdown;
+window.copyBranchMD = copyBranchMD;
+window.selectNode = selectNode;
+window.persistCatLabels = persistCatLabels;
+window.getLinkPartner = () => linkPartner;
+window.setLinkPartner = setLinkPartner;
+window.fileStamp = fileStamp;
+window.fileLabel = fileLabel;
+window.catLabel = catLabel;
+window.clearBranch = clearBranch;
 window.searchNodes = searchNodes;
 window.beginEdit = beginEdit;
 window.renderInspector = renderInspector;

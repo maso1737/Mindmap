@@ -9,8 +9,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=28" />
+  <link rel="stylesheet" href="styles.css?v=30" />
 <link rel="stylesheet" href="extras.css?v=11" />
+<link rel="stylesheet" href="combine.css?v=1" />
+<link rel="stylesheet" href="branch.css?v=1" />
+<link rel="stylesheet" href="safety.css?v=3" />
+<link rel="stylesheet" href="map-tools.css?v=4" />
 <template id="__bundler_thumbnail">
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 140">
   <rect width="200" height="140" fill="#f2f2ef"/>
@@ -48,7 +52,9 @@
       <div class="hd__menu">
         <button class="hd__menu-btn" type="button" aria-haspopup="true" aria-expanded="false"><span class="dot"></span>FILE ▾</button>
         <div class="hd__menu-list" hidden>
+          <button id="btn-backup" title="全マップ・カテゴリ・並び順・配置を 1 ファイルに">BACKUP · ALL</button>
           <button id="btn-import-md">IMPORT.MD</button>
+          <button id="btn-reload-md" title="このマップを元の .md ファイルから読み直す（確認あり）">RELOAD.MD</button>
           <button id="btn-import">IMPORT.JSON</button>
           <button id="btn-export-md">EXPORT.MD</button>
           <button id="btn-export">EXPORT.JSON</button>
@@ -121,7 +127,9 @@
       <button class="zout">−</button>
       <button class="zfit" style="font-size:9px;">FIT</button>
       <button class="zfocus" style="font-size:8px;">FOCUS</button>
+      <button class="zbranch" style="font-size:7px;" title="選んだ枝だけを表示 (B)">BRANCH</button>
     </div>
+    <div class="branch-bar" hidden></div>
     <div class="hint">
       <span><b>DRAG</b> · MOVE NODE</span>
       <span><b>SHIFT+DRAG</b> · RE-PARENT</span>
@@ -134,7 +142,10 @@
   </main>
 
   <!-- INSPECTOR -->
-  <aside class="insp" aria-label="Node inspector"></aside>
+  <div class="rcol">
+    <aside class="insp" aria-label="Node inspector"></aside>
+    <section class="cmb" aria-label="Combine tray"></section>
+  </div>
 
   <!-- FOOTER -->
   <footer class="foot">
@@ -162,7 +173,12 @@ const __TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "nodeStyle": "block"
 }/*EDITMODE-END*/;
 </script>
-  <script src="app.js?v=22"></script>
-<script src="extras.js?v=14"></script>
+  <script src="app.js?v=31"></script>
+<script src="extras.js?v=19"></script>
+<script src="combine.js?v=4"></script>
+<script src="safety.js?v=3"></script>
+<script src="relations.js?v=3"></script>
+<script src="links.js?v=1"></script>
+<script src="minimap.js?v=3"></script>
 </body>
 </html>

@@ -1,0 +1,60 @@
+/* =========================================================
+   SAVE SAFETY — import preview + VIEW ONLY
+   ========================================================= */
+.ex-modal__panel:has(.ex-modal__rich) { width: min(560px, 94vw); }
+.ex-modal__rich {
+  max-height: 56vh;
+  overflow: auto;
+  font-family: var(--jp, var(--sans));
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+.sf-intro { margin: 0 0 10px; }
+.sf-warn {
+  margin: 10px 0 0;
+  padding: 4px 8px;
+  background: var(--acc);
+  color: var(--acc-ink);
+}
+.sf-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.sf-table th,
+.sf-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--mute-2);
+  text-align: left;
+  white-space: nowrap;
+}
+.sf-table thead td { font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; color: var(--mute); border-bottom: 1px solid var(--ink); }
+.sf-table td:first-child { white-space: normal; font-weight: 600; }
+.sf-table tr.is-shrink td { background: color-mix(in srgb, var(--acc) 35%, transparent); }
+.sf-table tr.is-skip td { color: var(--mute); text-decoration: line-through; }
+.sf-table tr.is-skip td:last-child { text-decoration: none; }
+
+.ex-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  font-family: var(--jp, var(--sans));
+  font-size: 12px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+/* VIEW ONLY: nothing that writes map data is offered */
+.is-readonly #btn-import,
+.is-readonly #btn-import-md,
+.is-readonly #btn-backup,
+.is-readonly #btn-reload-md,
+.is-readonly #btn-tree-bake { display: none !important; }
+
+/* private maps (data/private) — only on this PC */
+.cat__private {
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  vertical-align: 1px;
+}
